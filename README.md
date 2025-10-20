@@ -82,7 +82,7 @@ Developed by **Nita Dragoe** at *Université Paris-Saclay (2024–2025)*, Combs 
 - Exhaustive search per crystal system (Cubic, Tetragonal, Hexagonal, Orthorhombic, Monoclinic)  
 - Each trial cell refined & scored against peak list  
 
-See [Technical Guide](docs/combs_help.md) for detailed methodology.
+See [Technical Guide](https://nitad54448.github.io/combs/combs_help.html) for detailed methodology.
 
 ---
 
