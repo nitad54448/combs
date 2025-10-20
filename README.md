@@ -150,17 +150,8 @@ Refinements include **least-squares fit** and optional **zero-point error correc
 
 ## 📥 Installation & Usage
 
-Clone this repository:
+<a href="https://nitad54448.github.io/combs/combs.html" target="_blank">Open the main program in your browser</a>
 
-```bash
-git clone https://github.com/yourusername/combs.git
-cd combs
-```
-
-Open the main HTML file in your browser:
-
-```bash
-open combs.html
 ```
 
 > 💡 No compilation required — Combs is pure JavaScript/HTML and runs locally in any modern browser.
