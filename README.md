@@ -4,7 +4,7 @@ This document provides a technical reference for the Combs Powder Indexing softw
 
 ## How to Start
 
-To start the program you can go [here](https://nitad54448.github.io/combs/combs.html).If it's the first time it is better to read a step-by-step guide on indexing your first pattern, see the [Quick Start Guide](#quick-start-guide).
+To start the program you can go [here](https://nitad54448.github.io/combs/combs.html). If it's the first time it is better to read a step-by-step guide on indexing your first pattern, see the [Quick Start Guide](#quick-start-guide).
 
 ## Table of Contents
 
