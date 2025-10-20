@@ -201,4 +201,4 @@ If you use Combs in academic work, please cite:
 - **Nita Dragoe** – Université Paris-Saclay (2024–2025)  
 - Successor to *Powder 4 (1999–2000)*  
 
-Help guide last updated: **19 Oct 2025**
+Help guide last updated by an AI assitant: **20 Oct 2025**
