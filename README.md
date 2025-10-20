@@ -152,24 +152,7 @@ Refinements include **least-squares fit** and optional **zero-point error correc
 
 <a href="https://nitad54448.github.io/combs/combs.html" target="_blank">Open the main program in your browser</a>
 
-```
-
 > 💡 No compilation required — Combs is pure JavaScript/HTML and runs locally in any modern browser.
-
----
-
-## 📸 Demo / Screenshots
-
-_Coming soon: interactive GIFs & example screenshots._
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome!  
-Feel free to open **issues** for bugs/feature requests and submit **pull requests**.
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before contributing.
 
 ---
 
