@@ -700,8 +700,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
     const max_hkl_analysis = 10;
 
-
-    function generateHKL_for_analysis(params, lambda, maxTth) {
+function generateHKL_for_analysis(params, lambda, maxTth) {
     const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
     const b = b_in ?? a;
     const c = c_in ?? a;
@@ -739,15 +738,17 @@ document.addEventListener('DOMContentLoaded', () => {
         case 'tetragonal':
         case 'hexagonal':
             for (let h = 0; h <= h_max; h++) {
-                for (let k = 0; k <= h; k++) {
+                for (let k = 0; k <= h; k++) {   // triangular domain for speed + no duplicates
                     for (let l = 0; l <= l_max; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
-                        let inv_d_sq = 0;
+
+                        let inv_d_sq;
                         if (system === 'tetragonal') {
                             inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c * c);
                         } else { // hexagonal
                             inv_d_sq = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
                         }
+
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
@@ -770,18 +771,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const sinBeta = Math.sin(beta * Math.PI / 180);
             const cosBeta = Math.cos(beta * Math.PI / 180);
             const sinBetaSq = sinBeta * sinBeta;
-            if (sinBetaSq < 1e-6) return []; // Invalid cell
+            if (sinBetaSq < 1e-6) return [];
 
             for (let h = -h_max; h <= h_max; h++) {
-                for (let k = 0; k <= k_max; k++) { // k >= 0 is sufficient
+                for (let k = 0; k <= k_max; k++) {
                     for (let l = -l_max; l <= l_max; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
-                        // Enforce uniqueness convention for monoclinic
                         if (k === 0) {
                             if (h < 0) continue;
                             if (h === 0 && l <= 0) continue;
                         }
-                        const inv_d_sq = (1 / sinBetaSq) * (h * h / (a * a) + l * l / (c * c) - 2 * h * l * cosBeta / (a * c)) + k * k / (b * b);
+                        const inv_d_sq =
+                            (1 / sinBetaSq) *
+                                (h * h / (a * a) +
+                                l * l / (c * c) -
+                                2 * h * l * cosBeta / (a * c)) +
+                            k * k / (b * b);
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
@@ -789,9 +794,9 @@ document.addEventListener('DOMContentLoaded', () => {
             break;
     }
 
-    // Sort and remove duplicates as a final safety measure
+    // Deduplicate reflections
     const uniqueReflections = [];
-    const tolerance = 1e-4; // 2-theta tolerance for uniqueness
+    const tolerance = 1e-4;
     if (reflections.length > 0) {
         reflections.sort((a, b) => a.tth - b.tth);
         uniqueReflections.push(reflections[0]);
@@ -803,7 +808,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     return uniqueReflections;
 }
-
 
 
 /**
@@ -1230,8 +1234,7 @@ function getReflectionZone(h, k, l) {
         });
     }
 
-
-    /**
+/**
          * Smart file detector. It checks for known headers and extensions
          * and falls back to a generic 2-column parser.
          */
@@ -1408,6 +1411,8 @@ function getReflectionZone(h, k, l) {
         
         const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
         const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
+
+
 
     ui.fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
