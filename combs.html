@@ -453,7 +453,7 @@
                             
                             <div style="margin-top: 1.5rem;">
                                 <label class="checkbox-label">
-                                    <input type="checkbox" id="refine-zero-checkbox"> Refine Zero-Point Error
+                                    <input type="checkbox" id="refine-zero-checkbox"checked> Refine Zero-Point Error
                                 </label>
                             </div>
 
@@ -701,57 +701,130 @@ document.addEventListener('DOMContentLoaded', () => {
     const max_hkl_analysis = 10;
 
 
-    function generateHKL_for_analysis(params, lambda, maxTth) { 
-        const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
-        const b = b_in ?? a; const c = c_in ?? a; const beta = beta_in ?? 90;
-        const reflections = [];
-        for (let h = -max_hkl_analysis; h <= max_hkl_analysis; h++) { 
-            for (let k = -max_hkl_analysis; k <= max_hkl_analysis; k++) { 
-                for (let l = -max_hkl_analysis; l <= max_hkl_analysis; l++) {
-                    if (h === 0 && k === 0 && l === 0) continue; 
-                    let inv_d_sq = 0;
-                    switch (system) {
-                        case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
-                        case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
-                        case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
-                        case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
-                        case 'monoclinic': 
-                            const sinBeta = Math.sin(beta*Math.PI/180); const cosBeta = Math.cos(beta*Math.PI/180); 
-                            inv_d_sq = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b); 
-                            break;
-                    }
-                    if (inv_d_sq > 0) { 
-                        const d = 1/Math.sqrt(inv_d_sq); 
-                        const sinThetaSq = (lambda*lambda/4)*inv_d_sq; 
-                        if (sinThetaSq <= 1) { 
-                            const tth = 2*Math.asin(Math.sqrt(sinThetaSq))*(180/Math.PI); 
-                            if(tth <= maxTth*1.05) reflections.push({ tth, h, k, l, d }); 
-                        } 
+    function generateHKL_for_analysis(params, lambda, maxTth) {
+    const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
+    const b = b_in ?? a;
+    const c = c_in ?? a;
+    const beta = beta_in ?? 90;
+    const reflections = [];
+
+    const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
+    const q_max_limit = (1 / (d_min * d_min)) * 1.05;
+    const h_max = Math.ceil(a / d_min) + 1;
+    const k_max = Math.ceil(b / d_min) + 1;
+    const l_max = Math.ceil(c / d_min) + 1;
+
+    const processReflection = (h, k, l, inv_d_sq) => {
+        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return;
+        const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+        if (sinThetaSq <= 1) {
+            const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+            reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq) });
+        }
+    };
+
+    switch (system) {
+        case 'cubic':
+            for (let h = 0; h <= h_max; h++) {
+                for (let k = 0; k <= h; k++) {
+                    for (let l = 0; l <= k; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        const inv_d_sq = (h * h + k * k + l * l) / (a * a);
+                        processReflection(h, k, l, inv_d_sq);
                     }
                 }
             }
-        } 
-        return reflections.sort((a, b) => a.tth - b.tth);
-    };
+            break;
+
+        case 'tetragonal':
+        case 'hexagonal':
+            for (let h = 0; h <= h_max; h++) {
+                for (let k = 0; k <= h; k++) {
+                    for (let l = 0; l <= l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        let inv_d_sq = 0;
+                        if (system === 'tetragonal') {
+                            inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c * c);
+                        } else { // hexagonal
+                            inv_d_sq = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
+                        }
+                        processReflection(h, k, l, inv_d_sq);
+                    }
+                }
+            }
+            break;
+
+        case 'orthorhombic':
+            for (let h = 0; h <= h_max; h++) {
+                for (let k = 0; k <= k_max; k++) {
+                    for (let l = 0; l <= l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        const inv_d_sq = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c);
+                        processReflection(h, k, l, inv_d_sq);
+                    }
+                }
+            }
+            break;
+
+        case 'monoclinic':
+            const sinBeta = Math.sin(beta * Math.PI / 180);
+            const cosBeta = Math.cos(beta * Math.PI / 180);
+            const sinBetaSq = sinBeta * sinBeta;
+            if (sinBetaSq < 1e-6) return []; // Invalid cell
+
+            for (let h = -h_max; h <= h_max; h++) {
+                for (let k = 0; k <= k_max; k++) { // k >= 0 is sufficient
+                    for (let l = -l_max; l <= l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        // Enforce uniqueness convention for monoclinic
+                        if (k === 0) {
+                            if (h < 0) continue;
+                            if (h === 0 && l <= 0) continue;
+                        }
+                        const inv_d_sq = (1 / sinBetaSq) * (h * h / (a * a) + l * l / (c * c) - 2 * h * l * cosBeta / (a * c)) + k * k / (b * b);
+                        processReflection(h, k, l, inv_d_sq);
+                    }
+                }
+            }
+            break;
+    }
+
+    // Sort and remove duplicates as a final safety measure
+    const uniqueReflections = [];
+    const tolerance = 1e-4; // 2-theta tolerance for uniqueness
+    if (reflections.length > 0) {
+        reflections.sort((a, b) => a.tth - b.tth);
+        uniqueReflections.push(reflections[0]);
+        for (let i = 1; i < reflections.length; i++) {
+            if (Math.abs(reflections[i].tth - uniqueReflections[uniqueReflections.length - 1].tth) > tolerance) {
+                uniqueReflections.push(reflections[i]);
+            }
+        }
+    }
+    return uniqueReflections;
+}
+
 
 
 /**
  * Analyzes observed diffraction peaks to determine compatible space groups.
  * Uses an INCLUSIVE approach: only flags violations when forbidden reflections are OBSERVED.
  * * @param {object} solution - Crystal solution with unit cell parameters and system
- * @param {Array<object>} obs_peaks - Observed peaks {tth, intensity}
+ * @param {Array<object>} obs_peaks - **Already-filtered** observed peaks
  * @param {object} spaceGroupData - Parsed reflection_conditions.json
  * @param {string} wavelength - Radiation wavelength (e.g., 'CuKa')
  * @param {number} tthError - Tolerance for matching 2-theta values
+ * @param {number} tthMax - The max 2-theta value from the UI slider
  * @returns {object} {centering, rankedSpaceGroups, detectedExtinctions}
  */
-function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError) {
+function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax) {
     const MAX_VIOLATIONS = 2; // Allow a few violations for experimental error
     
     const fallbackResult = {
         centering: 'Unknown',
         rankedSpaceGroups: [],
-        detectedExtinctions: []
+        detectedExtinctions: [],
+        ambiguousHkls: new Set() // Add default empty set
     };
 
     if (!spaceGroupData?.space_groups) {
@@ -759,19 +832,20 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         return fallbackResult;
     }
 
-    // Step 1: Index observed peaks
+    // This now calls the CORRECTED hkl generation function
     const all_calc_hkls = generateHKL_for_analysis(
         solution, 
         wavelength, 
-        Math.max(...obs_peaks.map(p => p.tth))
+        tthMax
     );
     
     if (all_calc_hkls.length === 0) return fallbackResult;
 
-    // Match observed peaks to calculated reflections
     const indexed_hkls = [];
+    const zero_correction = solution.zero_correction || 0;
+
     obs_peaks.forEach(peak => {
-        const corrected_tth = peak.tth - (solution.zero_correction || 0);
+        const corrected_tth = peak.tth - zero_correction;
         const bestMatch = all_calc_hkls.reduce((best, hkl) => {
             const diff = Math.abs(hkl.tth - corrected_tth);
             return diff < best.minDiff ? { hkl, minDiff: diff } : best;
@@ -783,44 +857,40 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
                 k: bestMatch.hkl.k, 
                 l: bestMatch.hkl.l,
                 tth: peak.tth,
-                intensity: peak.intensity
+                calc_tth: bestMatch.hkl.tth 
             });
         }
     });
 
-    // Remove duplicates
     const unique_indexed_hkls = Array.from(
         new Map(indexed_hkls.map(r => [`${r.h},${r.k},${r.l}`, r])).values()
     );
 
-    if (unique_indexed_hkls.length < 5) {
-        fallbackResult.centering = 'Unknown (too few indexed peaks)';
+    // This filter will now work correctly because all_calc_hkls is a unique list
+    const unambiguous_hkls = unique_indexed_hkls.filter(refl => {
+        const nearbyCount = all_calc_hkls.filter(calc => {
+            if (calc.h === refl.h && calc.k === refl.k && calc.l === refl.l) return false;
+            return Math.abs(calc.tth - refl.calc_tth) < tthError;
+        }).length;
+        return nearbyCount === 0; 
+    });
+
+    const hkls_for_analysis = unambiguous_hkls.length > 0 ? unambiguous_hkls : unique_indexed_hkls;
+    
+    if (hkls_for_analysis.length < 5) {
+        fallbackResult.centering = 'Unknown (too few unambiguous peaks in range)';
         return fallbackResult;
     }
 
-    // Filter out ambiguous reflections (those with another reflection within tolerance)
-    const unambiguous_hkls = unique_indexed_hkls.filter(refl => {
-        const nearbyCount = all_calc_hkls.filter(calc => {
-            // Skip the reflection itself
-            if (calc.h === refl.h && calc.k === refl.k && calc.l === refl.l) return false;
-            // Check if another reflection is too close
-            return Math.abs(calc.tth - refl.tth) < tthError;
-        }).length;
-        return nearbyCount === 0; // Keep only if no other reflections are nearby
-    });
+    const unambiguousSet = new Set(unambiguous_hkls.map(r => `${r.h},${r.k},${r.l}`));
+    const ambiguousHkls = new Set(
+        unique_indexed_hkls
+            .filter(r => !unambiguousSet.has(`${r.h},${r.k},${r.l}`))
+            .map(r => `${r.h},${r.k},${r.l}`)
+    );
 
-    // Use unambiguous reflections for analysis, but fall back to all if too few
-    const hkls_for_analysis = unambiguous_hkls.length >= 5 ? unambiguous_hkls : unique_indexed_hkls;
-    
-    // console.log(`Systematic absence analysis: ${unique_indexed_hkls.length} indexed, ${unambiguous_hkls.length} unambiguous, using ${hkls_for_analysis.length} for analysis`);
-
-    // Step 2: Determine lattice centering from observed reflections
     const centeringResult = determineCentering(hkls_for_analysis, solution.system);
-    
-    // Step 3: Detect extinction patterns
     const detectedExtinctions = detectExtinctions(hkls_for_analysis);
-
-    // Step 4: Rank space groups based on compatibility
     const rankedSpaceGroups = rankSpaceGroups(
         hkls_for_analysis,
         solution.system,
@@ -833,13 +903,19 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         centering: centeringResult.description,
         rankedSpaceGroups: rankedSpaceGroups.slice(0, 20),
         detectedExtinctions: detectedExtinctions,
-        centeringViolations: centeringResult.violations
+        centeringViolations: centeringResult.violations,
+        ambiguousHkls: ambiguousHkls
     };
 }
 
+
+
+
+
+
 /**
  * Determines the most likely lattice centering based on observed reflections.
- * Only counts violations when forbidden reflections are OBSERVED.
+ * (This function is a helper for analyzeSystematicAbsences)
  */
 function determineCentering(indexed_hkls, system) {
     const centeringTests = {
@@ -885,6 +961,8 @@ function determineCentering(indexed_hkls, system) {
     // Count violations: observed reflections that should be absent
     const violations = {};
     for (const [key, test] of Object.entries(centeringTests)) {
+        // This is the logic that was failing (because indexed_hkls was bad)
+        // It will now work correctly.
         violations[key] = indexed_hkls.filter(({h, k, l}) => 
             test.forbidden(h, k, l)
         ).length;
@@ -908,11 +986,26 @@ function determineCentering(indexed_hkls, system) {
         const specialCenterings = plausible.filter(c => 
             ['A', 'B', 'C'].includes(c)
         );
+        // This is the logic that handles your P/C case:
+        // If 'plausible' is ['P', 'C'], specialCenterings will be ['C'],
+        // and finalCenterings will be ['C'].
+        // *** EDIT ***: This should be finalCenterings = specialCenterings.length > 0 ? [...specialCenterings, 'P'] : ['P'];
+        // No, the original logic is: if C is plausible, C is preferred.
+        // Let's modify this to include P if it's also plausible.
+        
+        // --- *** FIX *** ---
+        // If special centerings are found, add 'P' to the list
+        // if it also had zero violations.
         finalCenterings = specialCenterings.length > 0 ? specialCenterings : ['P'];
+        if (plausible.includes('P') && !finalCenterings.includes('P')) {
+             finalCenterings.push('P');
+        }
+        // This now means finalCenterings can be, e.g., ['C', 'P']
+        // --- *** END FIX *** ---
     }
 
     return {
-        plausibleCenterings: finalCenterings,
+        plausibleCenterings: finalCenterings, // This is now a list, e.g., ['P'] or ['C', 'P']
         description: finalCenterings.map(c => centeringTests[c].name).join(' or '),
         violations: violations,
         minViolations: minViolations
@@ -921,39 +1014,43 @@ function determineCentering(indexed_hkls, system) {
 
 
 /**
- * Detects systematic extinctions from observed reflections.
- * Reports only clear, unambiguous extinctions.
- * This is primarily for diagnostic/educational purposes.
- * * NOTE: With incomplete powder data, this may miss many extinctions.
- * The main space group ranking is more reliable (cette version a été utilisé avant le 18 oct 25)
+ * --- *** FEATURE UPDATE *** ---
+ * Detects possible systematic extinctions from observed reflections.
+ * This version will list a rule as "possible" even if only one peak
+ * is observed in that zone, as long as it satisfies the rule.
+ * (This function is called by analyzeSystematicAbsences)
  */
 function detectExtinctions(indexed_hkls) {
     const confirmed = [];
     
     // Only test the most common/clear extinctions
     const tests = [
-        // Axial extinctions (most reliable)
+        // Axial extinctions
         { name: '00l: l=2n', zone: r => r.h === 0 && r.k === 0 && r.l !== 0, 
-          test: r => r.l % 2 === 0, minCount: 2 },
+          test: r => r.l % 2 === 0 },
         { name: 'h00: h=2n', zone: r => r.k === 0 && r.l === 0 && r.h !== 0, 
-          test: r => r.h % 2 === 0, minCount: 2 },
+          test: r => r.h % 2 === 0 },
         { name: '0k0: k=2n', zone: r => r.h === 0 && r.l === 0 && r.k !== 0, 
-          test: r => r.k % 2 === 0, minCount: 2 },
+          test: r => r.k % 2 === 0 },
         
         // Common planar extinctions
         { name: 'hk0: h+k=2n', zone: r => r.l === 0 && r.h !== 0 && r.k !== 0,
-          test: r => (r.h + r.k) % 2 === 0, minCount: 3 },
+          test: r => (r.h + r.k) % 2 === 0 },
         { name: 'h0l: h+l=2n', zone: r => r.k === 0 && r.h !== 0 && r.l !== 0,
-          test: r => (r.h + r.l) % 2 === 0, minCount: 3 },
+          test: r => (r.h + r.l) % 2 === 0 },
         { name: '0kl: k+l=2n', zone: r => r.h === 0 && r.k !== 0 && r.l !== 0,
-          test: r => (r.k + r.l) % 2 === 0, minCount: 3 }
+          test: r => (r.k + r.l) % 2 === 0 }
     ];
     
-    for (const {name, zone, test, minCount} of tests) {
+    for (const {name, zone, test} of tests) {
         const zoneReflections = indexed_hkls.filter(zone);
         
-        // Need minimum number of reflections to be confident
-        if (zoneReflections.length < minCount) continue;
+        // --- *** MODIFICATION *** ---
+        // Removed the 'minCount' check.
+        if (zoneReflections.length === 0) {
+            continue;
+        }
+        // --- *** END MODIFICATION *** ---
         
         // All observed reflections in zone must satisfy condition
         if (zoneReflections.every(test)) {
@@ -961,20 +1058,17 @@ function detectExtinctions(indexed_hkls) {
         }
     }
     
-    return confirmed.length > 0 ? confirmed : ["None clearly detected"];
+    return confirmed.length > 0 ? confirmed : ["None detected"];
 }
 
 /**
  * Ranks space groups AND THEIR SETTINGS by compatibility with observed reflections.
- * A setting is compatible if observed reflections don't violate its rules.
- * Returns a list of all compatible settings, including the specific setting symbol.
+ * (This function is a helper for analyzeSystematicAbsences)
  */
 function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations) {
     const candidateGroups = Object.values(spaceGroupData.space_groups)
         .filter(sg => sg.crystal_system === system);
     
-    // --- MODIFICATION ---
-    // We no longer group by number. We create a flat list of all valid settings.
     const validSettings = [];
     
     for (const sg of candidateGroups) {
@@ -984,23 +1078,22 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
         for (const setting of sg.settings) {
             const centering = setting.symbol.charAt(0);
             
-            // Skip if centering doesn't match
-            // (Handle 'P' as a fallback for non-standard centerings)
+            // --- *** FIX *** ---
+            // This now correctly checks if the setting's centering
+            // is in the list of allowed centerings (e.g., ['P', 'C'])
             if (!allowedCenterings.includes(centering) && 
                 !(allowedCenterings.includes('P') && !['I','F','A','B','C','R'].includes(centering))) {
                 continue;
             }
+            // --- *** END FIX *** ---
             
             const rules = setting.reflection_conditions || {};
             const violations = countViolations(indexed_hkls, rules);
             
-            // If this specific setting has an acceptable number of violations, add it to our list
             if (violations.count <= maxViolations) {
                 validSettings.push({
                     number: sgNumber,
-                    // Store the specific setting symbol (e.g., "A112/a")
                     symbol: setting.symbol, 
-                    // Store the standard symbol for reference if needed
                     standardSymbol: sg.standard_symbol, 
                     pointGroup: sg.point_group,
                     centrosymmetric: sg.centrosymmetric,
@@ -1020,13 +1113,9 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     return validSettings;
 }
 
-
-
-
 /**
  * Counts how many observed reflections violate a space group's conditions.
- * Reflection conditions in JSON are PRESENCE conditions (when allowed),
- * so violations occur when a reflection is observed but doesn't meet the condition.
+ * (This function is a helper for analyzeSystematicAbsences)
  */
 function countViolations(indexed_hkls, rules) {
     let count = 0;
@@ -1055,8 +1144,12 @@ function countViolations(indexed_hkls, rules) {
         return Math.round(value) % mod === 0;
     };
     
-    // Check each observed reflection
-    for (const {h, k, l} of indexed_hkls) {
+    // --- *** MODIFICATION *** ---
+    // Loop through the full reflection object to access all its properties
+    for (const reflection of indexed_hkls) {
+        const {h, k, l, calc_tth} = reflection; // Destructure h, k, l, and calc_tth
+        // --- *** END MODIFICATION *** ---
+        
         let isViolation = false;
         
         // Determine which rule applies to this reflection
@@ -1070,7 +1163,13 @@ function countViolations(indexed_hkls, rules) {
         for (const cond of [...applicableRules, ...generalRules]) {
             if (!satisfiesCondition(h, k, l, cond)) {
                 isViolation = true;
-                details.push(`(${h},${k},${l}) violates ${zone}: ${cond}`);
+                
+                // --- *** MODIFICATION *** ---
+                // Create the new, more detailed violation string
+                const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+                details.push(`(${h},${k},${l})${tth_string} violates ${zone}: ${cond}`);
+                // --- *** END MODIFICATION *** ---
+                
                 break;
             }
         }
@@ -1085,6 +1184,7 @@ function countViolations(indexed_hkls, rules) {
 
 /**
  * Determines the zone designation for a reflection
+ * (This function is a helper for analyzeSystematicAbsences)
  */
 function getReflectionZone(h, k, l) {
     if (k === 0 && l === 0 && h !== 0) return 'h00';
@@ -1098,10 +1198,6 @@ function getReflectionZone(h, k, l) {
     if (h !== 0 && h === l && k !== 0 && k !== h) return 'hll';
     return 'hkl';
 }
-
-
-
-
 
     const inputsToValidate = [
         { id: 'wavelength', el: ui.wavelength, default: 1.541780 },
@@ -1579,7 +1675,6 @@ const startIndexing = () => {
 };
 
 
-// New function to handle all post-processing
     const finalizeIndexing = (stoppedByUser = false) => {
         const statusTextElement = document.getElementById('status-text');
 
@@ -1587,15 +1682,30 @@ const startIndexing = () => {
         solutions = applyFinalSieve(solutions); 
         
         if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
+        
+        // --- *** FIX *** ---
+        // Get the 2-theta range from the sliders *once*
+        const tthMinVal = parseFloat(ui.tthMinSlider.value);
+        const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+
+        // Pre-filter the peaks list based on the slider range
+        const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+        // --- *** END FIX *** ---
+
         if (spaceGroupData) {
             solutions.forEach(sol => {
+                // --- *** FIX *** ---
+                // Pass the *filtered* peak list and the *max 2-theta* value
+                // to the analysis function.
                 sol.analysis = analyzeSystematicAbsences(
                     sol, 
-                    pickedPeaks, 
+                    filteredPeaks, // Pass the filtered list
                     spaceGroupData,
                     parseFloat(ui.wavelength.value),     
-                    parseFloat(ui.tthError.value)
+                    parseFloat(ui.tthError.value),
+                    tthMaxVal // Pass the slider max value
                 );
+                // --- *** END FIX *** ---
             });
         } else {
             console.warn('Space group data not available');
@@ -1630,6 +1740,7 @@ const startIndexing = () => {
             }
         }
     };
+
 
 
     ui.startIndexingButton.addEventListener('click', startIndexing);
@@ -1925,7 +2036,9 @@ const formatWithError = (value, error) => {
         return `${roundedValue}(${errorInLastDigits})`;
     };
 
-    const generatePDFReport = async () => {
+
+
+        const generatePDFReport = async () => {
     if (displayedSolutions.length === 0) {
         showStatus("No solutions found to generate a report.", 'info');
         return;
@@ -1951,19 +2064,38 @@ const formatWithError = (value, error) => {
         const tthMinVal = parseFloat(ui.tthMinSlider.value);
         const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
 
+        // --- FONTS & SIZES ---
+        const FONT = {
+            TITLE: 'helvetica',
+            LABEL: 'helvetica',
+            DATA: 'courier'
+        };
+        const SIZE = {
+            TITLE: 18,
+            H1: 14,
+            H2: 12,
+            BODY: 9,
+            TABLE_HEADER: 8,
+            TABLE_BODY: 8,
+            SMALL: 7
+        };
+
         // --- Page Header & Chart ---
         const now = new Date();
         const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-        doc.setFont('helvetica', 'normal').setFontSize(10);
-        doc.setFont('helvetica', 'bold').setFontSize(18).text('Powder Indexing Report', 105, yPos, { align: 'center' });
+        doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Combs - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
         yPos += 10;
-        doc.setFont('helvetica', 'normal').setFontSize(10);
-        doc.text(`Generated: ${timestamp}`, margin, yPos);
+        
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+        doc.text(`Generated:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
         yPos += 5;
-        doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
-        yPos += 10;
 
+        doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
+        doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
+        yPos += 10;
+        
         const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
         const imgData = canvas.toDataURL('image/png');
         const imgProps = doc.getImageProperties(imgData);
@@ -1976,52 +2108,54 @@ const formatWithError = (value, error) => {
         yPos = 20;
 
         // --- Indexing Parameters Section ---
-        doc.setFont('helvetica', 'bold').setFontSize(14).text('Indexing Parameters', margin, yPos);
+        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
         yPos += 8;
 
-        const minPeak = ui.peakThresholdValue.textContent;
-        const ballRadius = ui.ballRadiusValue.textContent;
-        const smoothPts = ui.smoothingWidthValue.textContent;
-        
-        const tthMin = tthMinVal.toFixed(2);
-        const tthMax = tthMaxVal.toFixed(2);
-        
-        const wavelengthVal = parseFloat(ui.wavelength.value).toFixed(5);
-        const maxVol = ui.maxVolume.value;
-        const tthErrorVal = ui.tthError.value;
-        const impurities = ui.impurityPeaksInput.value;
-        const refineZero = ui.refineZeroCheckbox.checked;
-        const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
+        const paramData = [
+            { label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
+            { label: 'Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
+            { label: 'Roll. Radius:', value: `${ui.ballRadiusValue.textContent} pts` },
+            { label: 'Max Volume (A^3):', value: ui.maxVolume.value },
+            { label: 'Smooth (pts):', value: ui.smoothingWidthValue.textContent },
+            { label: 'Tolerance (2theta):', value: ui.tthError.value },
+            { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
+            { label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
+            { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
+            { label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' }
+        ];
 
         const col1X = margin;
-        const col2X = margin + 80;
-        const labelOffset = 35;
+        const col2X = margin + 85;
+        const labelWidth = 35;
 
-        doc.setFont('helvetica', 'normal').setFontSize(9);
-        doc.text(`Min Peak (%):`, col1X, yPos); doc.setFont('courier', 'normal').text(`${minPeak}`, col1X + labelOffset, yPos);
-        doc.setFont('helvetica', 'normal').text(`Wavelength (A):`, col2X, yPos); doc.setFont('courier', 'normal').text(`${wavelengthVal}`, col2X + labelOffset, yPos); yPos += 5;
-        doc.text(`Roll. Radius:`, col1X, yPos); doc.setFont('courier', 'normal').text(`${ballRadius} pts`, col1X + labelOffset, yPos);
-        doc.setFont('helvetica', 'normal').text(`Max Volume (A^3):`, col2X, yPos); doc.setFont('courier', 'normal').text(`${maxVol}`, col2X + labelOffset, yPos); yPos += 5;
-        doc.text(`Smooth (pts):`, col1X, yPos); doc.setFont('courier', 'normal').text(`${smoothPts}`, col1X + labelOffset, yPos);
-        doc.setFont('helvetica', 'normal').text(`Tolerance (2theta):`, col2X, yPos); doc.setFont('courier', 'normal').text(`${tthErrorVal}`, col2X + labelOffset, yPos); yPos += 5;
-        doc.setFont('helvetica', 'normal').text(`2theta Min (deg):`, col1X, yPos); doc.setFont('courier', 'normal').text(`${tthMin}`, col1X + labelOffset, yPos);
-        doc.setFont('helvetica', 'normal').text(`Impurity Peaks:`, col2X, yPos); doc.setFont('courier', 'normal').text(`${impurities}`, col2X + labelOffset, yPos); yPos += 5;
-        doc.setFont('helvetica', 'normal').text(`2theta Max (deg):`, col1X, yPos); doc.setFont('courier', 'normal').text(`${tthMax}`, col1X + labelOffset, yPos);
-        doc.setFont('helvetica', 'bold').text(`Refine Zero:`, col2X, yPos); doc.setFont('courier', 'normal').text(refineZero ? 'True' : 'False', col2X + labelOffset, yPos); yPos += 7;
-
-        doc.setFont('helvetica', 'bold').text('Systems Searched:', col1X, yPos);
+        paramData.forEach((item, index) => {
+            const isCol1 = index % 2 === 0;
+            const x = isCol1 ? col1X : col2X;
+            if (isCol1) yPos += 5;
+            
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(item.label, x, yPos);
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
+        });
+        yPos += 7;
+        
+        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
+        const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
         const systemsText = systems.join(', ');
-        const splitSystems = doc.splitTextToSize(systemsText, pdfWidth - col1X - margin - labelOffset);
-        doc.setFont('courier', 'normal').text(splitSystems, col1X + labelOffset, yPos);
-        yPos += (splitSystems.length * 4) + 2;
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
+        yPos += 8;
 
         doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
 
         // --- Indexing Solutions Summary Section ---
-        doc.setFont('helvetica', 'bold').setFontSize(14).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
-        doc.setFont('helvetica', 'bold').setFontSize(9);
-        doc.text('Sys'.padEnd(5) + 'M(20)'.padStart(7) + 'Volume(A^3)'.padStart(12) + '  Parameters', margin, yPos); yPos += 5;
-        doc.setFont('courier', 'normal').setFontSize(9);
+        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
+        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
+        doc.text('Sys', margin, yPos);
+        doc.text('M(20)', margin + 15, yPos);
+        doc.text('Volume(A^3)', margin + 35, yPos);
+        doc.text('Parameters', margin + 65, yPos);
+        yPos += 5;
+
+        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
         displayedSolutions.slice(0, 30).forEach(sol => {
             if (yPos > 280) { doc.addPage(); yPos = 20; }
             let paramStr = '';
@@ -2033,59 +2167,53 @@ const formatWithError = (value, error) => {
                  case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
                  case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
             }
-            doc.text(`${sol.system.substring(0,4).padEnd(5)}${sol.m20.toFixed(2).padStart(7)} ${sol.volume.toFixed(2).padStart(11)}  ${paramStr}`, margin, yPos);
+            doc.text(sol.system.substring(0,4), margin, yPos);
+            doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+            doc.text(sol.volume.toFixed(2), margin + 35, yPos);
+            doc.text(paramStr, margin + 65, yPos);
             yPos += 5;
         });
 
         // --- Detailed Solution Pages ---
         displayedSolutions.forEach((sol, solIndex) => {
             doc.addPage(); yPos = 20;
-            doc.setFont('helvetica', 'bold').setFontSize(12);
+            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H2);
             doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos); yPos += 7;
-            doc.setFont('courier', 'normal').setFontSize(9);
+            
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
             const p = sol.errors || {};
+            const paramLines = [];
             switch (sol.system) {
-                 case 'cubic': doc.text(`a = ${formatWithError(sol.a, p.s_a)} A`, margin, yPos); yPos += 4; break;
-                 case 'tetragonal': doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 4; break;
-                 case 'hexagonal': doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, c = ${formatWithError(sol.c, p.s_c)} A, (gamma = 120 deg)`, margin, yPos); yPos += 4; break;
-                 case 'orthorhombic': doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, b = ${formatWithError(sol.b, p.s_b)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 4; break;
-                 case 'monoclinic': doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, b = ${formatWithError(sol.b, p.s_b)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 4; doc.text(`beta = ${formatWithError(sol.beta, p.s_beta)} deg`, margin, yPos); yPos += 4; break;
+                 case 'cubic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`); break;
+                 case 'tetragonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
+                 case 'hexagonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
+                 case 'orthorhombic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
+                 case 'monoclinic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`); break;
             }
+            paramLines.forEach(line => { doc.text(line, margin, yPos); yPos += 4; });
+
             if (sol.zero_correction !== undefined) { doc.text(`Zero Error (2theta) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); yPos += 4; }
             doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); yPos += 6;
 
-            // --- SPACE GROUP ANALYSIS SECTION ---
-            if (sol.analysis && sol.analysis.centering && sol.analysis.centering !== 'Unknown') {
-                 doc.setFont('helvetica', 'bold').setFontSize(9).text(`Lattice Centering:`, margin, yPos); doc.setFont('courier', 'normal').setFontSize(9).text(sol.analysis.centering, margin + 42, yPos); yPos += 5;
+            if (sol.analysis) {
+                 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(`Lattice Centering:`, margin, yPos);
+                 doc.setFont(FONT.DATA, 'normal').text(sol.analysis.centering, margin + 42, yPos); yPos += 5;
                  
-                 
-                 doc.setFont('helvetica', 'bold').setFontSize(9).text('Detected Extinctions:', margin, yPos); // Always print the label
-                 
-                 let extinctionList = []; // Default to empty
-                 if (sol.analysis.detectedExtinctions && sol.analysis.detectedExtinctions.length > 0) {
-                     // Filter out the default "None" message
-                     extinctionList = sol.analysis.detectedExtinctions.filter(e => e !== "None clearly detected");
-                 }
-
+                 doc.setFont(FONT.LABEL, 'normal').text('Possible Extinctions:', margin, yPos);
+                 let extinctionList = sol.analysis.detectedExtinctions || [];
                  if (extinctionList.length > 0) {
-                     // We found extinctions, so print them in a list
-                     const extinctionText = extinctionList.join(', ');
-                     const splitExtinctionText = doc.splitTextToSize(extinctionText, pdfWidth - (margin + 42) - margin);
-                     doc.setFont('courier', 'normal').setFontSize(9).text(splitExtinctionText, margin + 42, yPos);
-                     yPos += (splitExtinctionText.length * 4) + 2;
+                     doc.setFont(FONT.DATA, 'normal').text(extinctionList.join(', '), margin + 42, yPos);
                  } else {
-                     // No extinctions found, print "None detected"
-                     doc.setFont('courier', 'italic').setFontSize(9).text("None detected", margin + 42, yPos);
-                     yPos += 5; // Move down 5mm, similar to the centering line
+                     doc.setFont(FONT.DATA, 'italic').text("None clearly detected", margin + 42, yPos);
                  }
-
-                 // --- MODIFIED SPACE GROUP LISTING ---
+                 yPos += 7;
+                 
                  if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
-                     if (yPos > 265) { doc.addPage(); yPos = 20; }
-                     doc.setFont('helvetica', 'bold').setFontSize(9).text('Possible Space Groups:', margin, yPos); yPos += 5;
-                     const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20); // Already sliced
+                     if (yPos > 260) { doc.addPage(); yPos = 20; }
+                     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text('Possible Space Groups:', margin, yPos); yPos += 5;
                      
-                     // First, group by violation count
+                     // ... Space group listing logic remains the same ...
+                     const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
                      const groupsByViolation = {};
                      sgList.forEach(sg => { 
                          const v = sg.violations || 0; 
@@ -2097,121 +2225,116 @@ const formatWithError = (value, error) => {
                      for (let v = 0; v <= maxViolationsToShow; v++) {
                          if (groupsByViolation[v] && groupsByViolation[v].length > 0) {
                              if (yPos > 270) { doc.addPage(); yPos = 20; }
-                             doc.setFont('helvetica', 'bold').setFontSize(9).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos); yPos += 4;
+                             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos); yPos += 5;
                              
-                             // Group this violation set by number
                              const groupsByNumber = new Map();
                              groupsByViolation[v].forEach(sg => {
-                                 if (!groupsByNumber.has(sg.number)) {
-                                     groupsByNumber.set(sg.number, []);
-                                 }
-                                 groupsByNumber.get(sg.number).push(sg.symbol); // Push the setting symbol
+                                 if (!groupsByNumber.has(sg.number)) groupsByNumber.set(sg.number, []);
+                                 groupsByNumber.get(sg.number).push(sg.symbol);
                              });
                              
-                             // Iterate and print by number
-                             doc.setFont('courier', 'normal').setFontSize(8);
+                             const sortedNumbers = Array.from(groupsByNumber.keys()).sort((a, b) => a - b);
+                             doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
                              const maxLineLength = 85; 
                              
-                             // Sort by space group number
-                             const sortedNumbers = Array.from(groupsByNumber.keys()).sort((a, b) => a - b);
-
                              for (const number of sortedNumbers) {
-                                 const settings = groupsByNumber.get(number);
-                                 // Format: "28: Pma2, Pm2a"
-                                 let line = `${number}: ${settings.join(', ')}`;
-                                 
-                                 // Split text if it's too long
+                                 let line = `${number}: ${groupsByNumber.get(number).join(', ')}`;
                                  const splitLines = doc.splitTextToSize(line, maxLineLength);
-                                 
                                  splitLines.forEach(splitLine => {
                                      if (yPos > 275) { doc.addPage(); yPos = 20; }
                                      doc.text(splitLine, margin + 5, yPos); 
-                                     yPos += 3.5;
+                                     yPos += 4;
                                  });
                              }
 
                              if (v > 0) {
-                                 doc.setFontSize(7); 
-                                 // Get the *first 8 settings* that have violations
                                  const groupsToDetail = groupsByViolation[v].slice(0, 8); 
-                                 
                                  groupsToDetail.forEach(sg => {
                                      if (yPos > 275) { doc.addPage(); yPos = 20; }
                                      if (sg.violatedReflections && sg.violatedReflections.length > 0) {
-                                         doc.setFont('courier', 'bold').text(`  ${sg.symbol}:`, margin + 5, yPos); yPos += 3; // Use setting symbol
-                                         doc.setFont('courier', 'italic');
-                                         sg.violatedReflections.slice(0, 4).forEach(viol => { if (yPos > 280) { doc.addPage(); yPos = 20; } doc.text(`    ${viol}`, margin + 5, yPos); yPos += 2.5; });
+                                         doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.SMALL).text(`  ${sg.symbol}:`, margin + 5, yPos); yPos += 3.5;
+                                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                                         sg.violatedReflections.slice(0, 4).forEach(viol => { if (yPos > 280) { doc.addPage(); yPos = 20; } doc.text(`    ${viol}`, margin + 5, yPos); yPos += 3; });
                                          yPos += 1;
                                      }
                                  });
-                                 doc.setFontSize(8);
                              }
                              yPos += 3;
                          }
                      }
-                 } 
-                 // --- END MODIFIED LISTING ---
-                 else { // Handle case where no space groups were ranked
-                    doc.setFont('helvetica', 'bold').text('Possible Space Groups:', margin, yPos); yPos += 4;
-                    doc.setFont('courier', 'italic').setFontSize(8);
-                    doc.text('No compatible space groups found based on observed reflections.', margin + 5, yPos);
-                    doc.setFontSize(9); yPos += 5;
-                }
-                 if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) { // Optional centering details
-                     if (yPos > 268) { doc.addPage(); yPos = 20; }
-                     doc.setFont('helvetica', 'bold').setFontSize(7); doc.text('Centering test violations:', margin, yPos); yPos += 3;
-                     const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
-                     const splitViol = doc.splitTextToSize(violText, pdfWidth - (margin + 5) - margin);
-                     doc.setFont('courier', 'normal').setFontSize(6); doc.text(splitViol, margin + 5, yPos); doc.setFontSize(9); yPos += (splitViol.length * 2.5) + 2;
                  }
-            } else { // Handle case where analysis failed
-                if (yPos > 270) { doc.addPage(); yPos = 20; }
-                doc.setFont('helvetica', 'bold').setFontSize(9); doc.text('Space Group Analysis:', margin, yPos); yPos += 4;
-                doc.setFont('courier', 'italic').setFontSize(8); doc.text('Analysis unavailable (space group data may not be loaded).', margin + 5, yPos);
-                doc.setFontSize(9); yPos += 5;
-            }
+                 
+                 if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
+                     if (yPos > 268) { doc.addPage(); yPos = 20; }
+                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Centering test violations:', margin, yPos); yPos += 5;
+                     const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
+                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
+                     yPos += 5;
+                 }
+            } 
             yPos += 4;
             if (yPos > 255) { doc.addPage(); yPos = 20; }
 
             // --- REFLECTION TABLE ---
-            doc.setFont('helvetica', 'bold').setFontSize(8);
+            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
             const tableHeader = ' h k l   | 2th_meas 2th_corr 2th_calc | d_corr     d_calc    | diff(2th)';
             doc.text(tableHeader, margin, yPos); yPos += 4;
-            doc.setFont('courier', 'normal').setFontSize(8);
-
-            const hklList = generateHKL(tthMaxVal, { ...sol, lambda }, sol.system);
             
-            const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
-            const reportLines = []; const assignedHkls = new Set();
+            const hklList = generateHKL_for_analysis(sol, lambda, tthMaxVal);
+            
+            if (hklList.length === 0) {
+                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text('Could not generate theoretical reflections for this cell.', margin, yPos);
+                 yPos += 5;
+                 return; 
+            }
 
-            corrected_tth_obs.forEach((corr_peak, obs_index) => {
+            const ambiguousHkls = sol.analysis.ambiguousHkls || new Set();
+            const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+            const reportLines = []; 
+            const assignedHkls = new Set();
+
+            corrected_tth_obs.forEach((corr_peak) => {
                 let bestMatchHkl = null; let minDiff = Infinity;
                 hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
                 
                 if (bestMatchHkl && minDiff < tthError * 2 && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
-                    const d_corr = lambda / (2 * Math.sin(corr_peak.tth_corr * Math.PI / 360));
-                    reportLines.push({ h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l, tth_meas: pickedPeaks[obs_index].tth, tth_corr: corr_peak.tth_corr, tth_calc: bestMatchHkl.tth, d_corr: d_corr, d_calc: bestMatchHkl.d });
-                    assignedHkls.add(bestMatchHkl);
+                    reportLines.push({ h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l, tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr, tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d });
+                    assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
                 }
             });
-            hklList.forEach(hkl => {
-                if (!assignedHkls.has(hkl) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
-                    reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, d_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
-                }
-            });
-            reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
 
+            hklList.forEach(hkl => {
+                if (!assignedHkls.has(`${hkl.h},${hkl.k},${hkl.l}`) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
+                    reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
+                }
+            });
+            
+            reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
+            
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
             reportLines.forEach(line => {
-                if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont('helvetica', 'bold').setFontSize(8); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont('courier', 'normal').setFontSize(8); }
-                const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '   -   '; const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '   -   '; const d_c = line.d_corr ? line.d_corr.toFixed(5) : '    -    '; const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '   -   ';
+                if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+                
+                const hkl_key = `${line.h},${line.k},${line.l}`;
+                if (ambiguousHkls.has(hkl_key)) {
+                    doc.setFont(FONT.DATA, 'italic');
+                }
+
+                const d_corr = line.tth_corr ? lambda / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
+                const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '   -   '; 
+                const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '   -   '; 
+                const d_c_str = d_corr ? d_corr.toFixed(5) : '    -    '; 
+                const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '   -   ';
+                
                 const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}`.padEnd(8);
-                const pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} | ${d_c.padStart(9)} ${line.d_calc.toFixed(5).padStart(9)} | ${diff_2t.padStart(8)}`;
+                const pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} | ${d_c_str.padStart(9)} ${line.d_calc.toFixed(5).padStart(9)} | ${diff_2t.padStart(8)}`;
                 doc.text(pdfLine, margin, yPos);
+                
+                doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
                 yPos += 3.5;
             });
         });
 
-        // Save the PDF
         const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
         doc.save(filename);
         showStatus('PDF report generated and saved.', 'success');
@@ -2225,6 +2348,10 @@ const formatWithError = (value, error) => {
         document.body.style.cursor = 'default';
     }
 };
+
+
+
+
 
 
     window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
@@ -2241,11 +2368,11 @@ self.onmessage = function(e) {
 const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
 
 // --- DEBUG LOGGING ---
-    console.log(`[Worker] Received ${peaks.length} peaks. Wavelength: ${wavelength}`);
-    console.log("[Worker] Calculating q_obs (1/d^2) for all peaks:");
+//    console.log(`[Worker] Received ${peaks.length} peaks. Wavelength: ${wavelength}`);
+//    console.log("[Worker] Calculating q_obs (1/d^2) for all peaks:");
     const q_values_full = peaks.map(p => {
         const q = (4 * Math.sin(p.tth * Math.PI / 360)**2) / (wavelength**2);
-        console.log(`  2θ: ${p.tth.toFixed(4)} -> q: ${q.toFixed(6)}`);
+//        console.log(`  2θ: ${p.tth.toFixed(4)} -> q: ${q.toFixed(6)}`);
         return q;
     });
     // --- END DEBUG LOGGING ---
@@ -2796,13 +2923,8 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return hkl_search_list_cache[system] = hkls;
     };
 
-    const refineAndTestSolution = (initialParams) => {
+        const refineAndTestSolution = (initialParams) => {
     if (!initialParams || !initialParams.system) return;
-    
-    // --- *** BUG FIX *** ---
-    // This check *only* validates a, b, or c *if they exist*
-    // in the initialParams object. It will no longer fail for
-    // cubic/tetragonal by checking undefined values.
     
     const min_lp = 2, max_lp = 50.0;
     const params_to_check = [];
@@ -2811,23 +2933,23 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     if (initialParams.c !== undefined) params_to_check.push(initialParams.c);
 
     if (params_to_check.some(p => (isNaN(p) || p < min_lp || p > max_lp))) {
-        return; // Silently exit if a, b, or c are defined and out of range
+        return; 
     }
     
-    // We can now safely destructure
-    const { a, b, c, beta, system } = initialParams;
     let candidate_cell = { ...initialParams }; 
-    // --- *** END FIX *** ---
+    const { system } = initialParams;
 
-    // --- STEP 1: Perform the initial refinement WITHOUT zero error ---
+    // --- STEP 1: Perform the initial indexing ---
     let initial_indexed_pairs = [];
-    const hkl_search_list = get_hkl_search_list(system); // Get search list once
+    let initial_peak_indices = []; 
+    
+    const hkl_search_list = get_hkl_search_list(system); 
     
     for (let i = 0; i < N_FOR_M20; i++) {
         const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
         let best_match = null, min_diff = Infinity;
         
-        for (const hkl of hkl_search_list) { // Use the cached list
+        for (const hkl of hkl_search_list) { 
             const q_calc = getQcalc(hkl, candidate_cell);
             const diff = Math.abs(q_calc - q_o);
             
@@ -2836,9 +2958,6 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                 best_match = hkl; 
             }
             
-            // This optimization is ONLY valid for orthogonal/cubic systems
-            // where the hkl list sort order guarantees q_calc is always increasing.
-            // It is NOT valid for monoclinic.
             if (system !== 'monoclinic' && q_calc > q_o + tolerance * 2) {
                  break; 
             }
@@ -2846,6 +2965,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         
         if (best_match && min_diff < tolerance) {
             initial_indexed_pairs.push({ q_obs: q_o, hkl: best_match });
+            initial_peak_indices.push(original_indices[i]);
         }
     }
     
@@ -2856,14 +2976,53 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     }
     
     // --- STEP 2: Perform Least-Squares Refinement ---
-    let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+    // --- *** MODIFICATION: This block now ALWAYS runs *** ---
+    let fitResult_no_zero = null;
     const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
-    const weights_initial = q_vec_initial.map(q => 1 / (q*q));
-    const fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
+
+    // 1. Build a design matrix *with* a zero-error column
+    let M_with_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+    M_with_zero.forEach((row, i) => {
+        const tth_rad = tth_obs_rad[initial_peak_indices[i]];
+        row.push((2 / (wavelength**2)) * Math.sin(tth_rad));
+    });
+
+    // 2. Solve for cell params *and* zero error
+    const fitResult_with_zero = solveLeastSquares(M_with_zero, q_vec_initial, q_vec_initial);
+
+    if (fitResult_with_zero && fitResult_with_zero.solution) {
+        // 3. Get the initial zero correction (in degrees)
+        let initial_zero_correction_rad = fitResult_with_zero.solution[fitResult_with_zero.solution.length - 1];
+        let initial_zero_correction_deg = initial_zero_correction_rad * 180 / Math.PI;
+
+        // 4. LIMIT the correction to the tth_error tolerance
+        initial_zero_correction_deg = Math.max(-tth_error, Math.min(tth_error, initial_zero_correction_deg));
+        
+        // 5. Apply this *limited* correction to the observed q values
+        const q_vec_corrected = [];
+        for (let i = 0; i < initial_indexed_pairs.length; i++) {
+            const original_tth_deg = tth_obs_rad[initial_peak_indices[i]] * 180 / Math.PI;
+            const corrected_tth_rad = (original_tth_deg - initial_zero_correction_deg) * Math.PI / 180;
+            const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+            q_vec_corrected.push(corrected_q);
+        }
+
+        // 6. Now solve *only* for cell params using the corrected q values
+        let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+        fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_corrected, q_vec_corrected);
+    }
     
+    // Fallback: If the zero-refinement failed, run the original (non-zero-corrected) refinement.
+    if (!fitResult_no_zero) {
+        let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+        fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
+    }
+    // --- *** END OF MODIFICATION *** ---
+
     if (!fitResult_no_zero || !fitResult_no_zero.solution) {
         return;
     }
+    
     const initial_cell = extractCellFromFit(fitResult_no_zero.solution, system);
     if (!initial_cell) {
         return;
@@ -2887,32 +3046,26 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     final_solution_to_post.m20 = m20;
     final_solution_to_post.errors = propagateErrors(system, fitResult_no_zero, initial_cell);
     
-    // --- STEP 4: Perform the FINAL refinement WITH zero error, if enabled
+    // --- STEP 4: Perform the FINAL refinement WITH zero error, ONLY if the user enabled it ---
     if (refineZero) {
-        // 1. Generate a complete and accurate list of theoretical reflections from the good cell.
         const all_possible_reflections = generateHKL_for_worker(initial_cell);
-        
-        // 2. Re-index the OBSERVED peaks using this high-quality theoretical pattern.
         const final_indexed_pairs = [];
         const final_peak_indices_for_ls = [];
         const used_reflections = new Set();
 
-        for (let i = 0; i < N_FOR_M20; i++) { // Loop through OBSERVED peaks
+        for (let i = 0; i < N_FOR_M20; i++) { 
             const q_o = q_obs[i];
             const tolerance = get_q_tolerance(original_indices[i]);
             let best_match_idx = -1, min_diff = Infinity;
 
-            // Find the best theoretical match for the current observed peak
             for (let j = 0; j < all_possible_reflections.length; j++) {
                 const diff = Math.abs(all_possible_reflections[j].q - q_o);
                 if (diff < min_diff) {
                     min_diff = diff;
                     best_match_idx = j;
                 }
-                // No optimization break here - need to find the absolute best match
             }
 
-            // If a good, unique match is found, add this OBSERVED peak to our final dataset.
             if (best_match_idx !== -1 && min_diff < tolerance && !used_reflections.has(best_match_idx)) {
                 const {h, k, l} = all_possible_reflections[best_match_idx];
                 final_indexed_pairs.push({ q_obs: q_o, hkl: [h, k, l] });
@@ -2922,19 +3075,19 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         }
         
         if (final_indexed_pairs.length > min_indexed[system]) {
-            let M_with_zero = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+            let M_with_zero_final = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
             const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
-            M_with_zero.forEach((row, i) => {
+            M_with_zero_final.forEach((row, i) => {
                 const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]];
                 row.push((2 / (wavelength**2)) * Math.sin(tth_rad));
             });
 
-            const fitResult_with_zero = solveLeastSquares(M_with_zero, q_vec_final, q_vec_final);
+            const fitResult_with_zero_final = solveLeastSquares(M_with_zero_final, q_vec_final, q_vec_final);
             
-            if (fitResult_with_zero && fitResult_with_zero.solution) {
-                const refined_cell = extractCellFromFit(fitResult_with_zero.solution, system);
+            if (fitResult_with_zero_final && fitResult_with_zero_final.solution) {
+                const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
                 if (refined_cell) {
-                    refined_cell.zero_correction = fitResult_with_zero.solution[fitResult_with_zero.solution.length - 1] * 180 / Math.PI;
+                    refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * 180 / Math.PI;
                     refined_cell.volume = getVolume(refined_cell);
                     
                     const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell).map(r => r.q));
@@ -2947,8 +3100,8 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     
                     if (final_m20 > min_m20) {
                         refined_cell.m20 = final_m20;
-                        refined_cell.errors = propagateErrors(system, fitResult_with_zero, refined_cell);
-                        final_solution_to_post = refined_cell; // This is now the best solution
+                        refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
+                        final_solution_to_post = refined_cell; 
                     }
                 }
             }
@@ -2968,6 +3121,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         foundSolutionMap.set(key, { m20: final_solution_to_post.m20, index: existing ? existing.index : foundSolutions.length - 1 });
     }
 };
+
 
 
     // --- SEARCH ALGORITHMS 
@@ -3361,16 +3515,13 @@ function isValidCellParams(a, b, c, beta) {
 }
 
 // --- DERIVED/TRANSFORMED CELL SEARCH (MODIFIED) ---
-    const findTransformedSolutions = (initialSolutions) => {
+const findTransformedSolutions = (initialSolutions) => {
         const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
-        
-        // --- ADDED ---
         const totalSolutions = initialSolutions.length;
         if (totalSolutions === 0) return;
-        // ---
 
-        initialSolutions.forEach((sol, index) => { // <-- Added index
-            // 1. Matrix Transformations
+        initialSolutions.forEach((sol, index) => {
+            // --- 1. Original Transformations ---
             cellTransforms.forEach(tf => {
                 try {
                     const G = metricFromCell(sol); const Pt = transpose(tf.P); const Gprime = matMul(matMul(Pt, G), tf.P);
@@ -3379,9 +3530,17 @@ function isValidCellParams(a, b, c, beta) {
                     if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
                 } catch {}
             });
+            
+            const indexedPeaks = []; // Re-index for GCD and Ortho-Hexagonal checks
+            const theoretical_hkls_for_tf = generateHKL_for_worker(sol);
+            for(let i=0; i<N_FOR_M20; i++){
+                 const q_o = q_obs[i];
+                 const best_match_idx = binarySearchClosest(theoretical_hkls_for_tf.map(h => h.q), q_o);
+                 if(Math.abs(q_o - theoretical_hkls_for_tf[best_match_idx].q) < get_q_tolerance(original_indices[i])){
+                     indexedPeaks.push(theoretical_hkls_for_tf[best_match_idx]);
+                 }
+            }
 
-            // 2. HKL Divisor Analysis
-            const indexedPeaks = findIndexedPeaksForSolution(sol, tth_error);
             if (indexedPeaks.length > 5) {
                 const h_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.h)).filter(h => h > 0));
                 const k_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.k)).filter(k => k > 0));
@@ -3392,8 +3551,6 @@ function isValidCellParams(a, b, c, beta) {
                     if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
                 }
             }
-            
-            // 3. Orthorhombic to Hexagonal Check
             if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {
                 const axes = { a: sol.a, b: sol.b, c: sol.c }; const pairs = [['a','b','c'], ['a','c','b'], ['b','c','a']];
                 pairs.forEach(([ax1, ax2, unique_ax]) => {
@@ -3403,14 +3560,62 @@ function isValidCellParams(a, b, c, beta) {
                 });
             }
 
-  
-            // This transformation phase accounts for progress from 80% to 95%
+            // --- 2. "Swap Fishing" Strategy ---
+            try {
+                const system = sol.system;
+                const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4}[system];
+                if (!min_peaks_needed || peaks.length < min_peaks_needed) return;
+
+                const theoretical_hkls = generateHKL_for_worker(sol);
+                const first_four_indexed = [];
+                for(let i=0; i<4 && i < q_obs.length; i++){
+                    const q_o = q_obs[i];
+                    const best_match_idx = binarySearchClosest(theoretical_hkls.map(h => h.q), q_o);
+                    if(Math.abs(q_o - theoretical_hkls[best_match_idx].q) < get_q_tolerance(original_indices[i])){
+                        first_four_indexed.push({q_obs: q_o, hkl: [theoretical_hkls[best_match_idx].h, theoretical_hkls[best_match_idx].k, theoretical_hkls[best_match_idx].l]});
+                    }
+                }
+                if (first_four_indexed.length < min_peaks_needed) return;
+
+                let closest_pair = {i: -1, j: -1, diff: Infinity};
+                for(let i=0; i<first_four_indexed.length; i++){
+                    for(let j=i+1; j<first_four_indexed.length; j++){
+                        const diff = Math.abs(first_four_indexed[i].q_obs - first_four_indexed[j].q_obs);
+                        if(diff < closest_pair.diff){
+                            closest_pair = {i, j, diff};
+                        }
+                    }
+                }
+                
+                if(closest_pair.i !== -1){
+                    const swapped_indexed_peaks = JSON.parse(JSON.stringify(first_four_indexed));
+                    const temp_hkl = swapped_indexed_peaks[closest_pair.i].hkl;
+                    swapped_indexed_peaks[closest_pair.i].hkl = swapped_indexed_peaks[closest_pair.j].hkl;
+                    swapped_indexed_peaks[closest_pair.j].hkl = temp_hkl;
+                    
+                    const peaks_for_solve = swapped_indexed_peaks.slice(0, min_peaks_needed);
+                    const M = peaks_for_solve.map(p => getLSDesignRow(p.hkl, system));
+                    const q_vec = peaks_for_solve.map(p => p.q_obs);
+
+                    const fit = solveLeastSquares(M, q_vec);
+                    if(fit && fit.solution){
+                        const new_trial_cell = extractCellFromFit(fit.solution, system);
+                        if(new_trial_cell){
+                           refineAndTestSolution(new_trial_cell);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Swap-fishing attempt failed:", e);
+            }
+
             const progress = 80 + ((index + 1) / totalSolutions) * 15;
             self.postMessage({ type: 'progress', payload: progress });
-           
         });
     };
-    
+       
+
+
     // --- EXECUTION & REPORTING (MODIFIED) ---
     postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...` });
     self.postMessage({ type: 'progress', payload: 1 }); // Start at 1%
@@ -3439,6 +3644,8 @@ function isValidCellParams(a, b, c, beta) {
     self.postMessage({ type: 'done' });
     // ---
 };
+
+
 </script>
 
 <div id="app-footer">Combs, version 20 oct 2025</div>
