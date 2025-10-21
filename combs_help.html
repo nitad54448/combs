@@ -122,7 +122,7 @@
                 <li><a href="#ui">The User Interface</a></li>
                 <li><a href="#peak-finding">Peak Finding</a></li>
                 <li><a href="#indexing-method">Indexing Algorithm</a></li>
-                <li><a href="#evaluating-solutions">Evaluating Solutions (M(20))</a></li>
+                <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
                 <li><a href="#space-group-analysis">Space Group Analysis</a></li>
                 <li><a href="#advanced-topics">Advanced Topics</a></li>
                 <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -162,6 +162,7 @@
                         <li>Verify the X-ray <code>Wavelength (Å)</code>.</li>
                         <li>Set a chemically sensible <code>Max Volume (Å³)</code> to constrain the search.</li>
                         <li>Set the <code>2θ Error (°)</code> appropriate for your instrument's resolution (e.g., 0.02° for synchrotron, 0.05° for lab data).</li>
+                        <li>The <strong>Refine Zero-Point Error</strong> checkbox is enabled by default and is highly recommended.</li>
                         <li>Select the crystal systems to search. Start with higher symmetries first.</li>
                     </ul>
                 </li>
@@ -189,7 +190,7 @@
                 <li><strong>Max Volume (Å³):</strong> The upper limit for acceptable unit cell volume. A key parameter for constraining the search.</li>
                 <li><strong>2θ Error (°):</strong> Tolerance for matching calculated to observed peaks.</li>
                 <li><strong>Impurity Peaks:</strong> Number of allowed un-indexed peaks among the first 20 when calculating M(20).</li>
-                <li><strong>Refine Zero-Point Error:</strong> Enables simultaneous refinement of a zero-point correction with the lattice parameters. Highly recommended.</li>
+                <li><strong>Refine Zero-Point Error:</strong> Controls whether a full, unconstrained zero-point refinement is applied to the final reported solution.</li>
                 <li><strong>Crystal Systems to Search:</strong> Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, and Monoclinic systems.</li>
             </ul>
             
@@ -261,23 +262,10 @@
                     It iterates through <em>quadruplets</em> of observed peaks (from the first 20), assigning <em>quadruplets</em> of trial $(hkl)$ vectors from a dynamically generated, curated basis set of 50 common, low-index reflections.
                 </li>
             </ul>
-
-            <h3>Search Depth and HKL Limits</h3>
-            <p>To ensure performance, the search depth and the range of Miller indices tested are internally limited. These hard-coded parameters represent a balance between exhaustive searching and computational time.</p>
-             <table>
-                <thead><tr><th>Crystal System</th><th>Peak Subset Used</th><th>HKL Index Limits</th></tr></thead>
-                <tbody>
-                    <tr><td>Cubic</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 8</td></tr>
-                    <tr><td>Tetragonal</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 5</td></tr>
-                    <tr><td>Hexagonal</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 5</td></tr>
-                    <tr><td>Orthorhombic</td><td>First 10 peaks</td><td>Uses a basis set of the first 30 plausible low-index reflections.</td></tr>
-                    <tr><td>Monoclinic</td><td>First 20 peaks</td><td>Uses a curated basis set of 50 common, low-index reflections.</td></tr>
-                </tbody>
-            </table>
         </section>
 
         <section id="evaluating-solutions">
-            <h2>Evaluating Solutions (M(20))</h2>
+            <h2>Evaluating Solutions</h2>
             <p>The indexing search often produces multiple candidate solutions. Distinguishing the correct one requires a reliable figure of merit and careful refinement.</p>
             
             <h3>The de Wolff Figure of Merit: M(20)</h3>
@@ -294,16 +282,16 @@
 
             <h3>Least-Squares and Zero-Point Refinement</h3>
             <p>
-                Every promising trial cell is refined using linear least-squares to minimize the difference between $Q_{obs}$ and $Q_{calc}$.
+                Every promising trial cell is refined using a robust, two-stage process to find the best possible parameters and M(20) score.
             </p>
+            <h4>Stage 1: Internal Zero-Point Correction</h4>
             <p>
-                When the <code>Refine Zero-Point Error</code> option is enabled, the program uses a robust two-step approach:
+                To generate the most accurate cell proposal, the program <strong>always</strong> performs an initial refinement that includes a zero-point error term. This internal correction is strictly limited (constrained to be no larger than the user-defined `2θ Error`) to account for minor instrument misalignments without overfitting. The resulting corrected peak positions are then used to refine a baseline set of lattice parameters. This makes the initial cell proposal much more robust against small experimental shifts.
             </p>
-            <ol>
-                <li><strong>Baseline Refinement:</strong> It first performs a stable refinement of <strong>only the lattice parameters</strong>. This provides a reliable fallback solution.</li>
-                <li><strong>Full Refinement:</strong> It then attempts a more complex refinement solving for both the lattice parameters and the zero-point error simultaneously. This is done by adding a term to the least-squares fit that models the $2\theta$ shift.</li>
-            </ol>
-            <p>If the full refinement is unstable or produces an invalid cell, the program gracefully falls back to the reliable baseline solution, ensuring a valid result is never discarded due to an unstable higher-order fit.</p>
+            <h4>Stage 2: Final (Optional) Zero-Point Refinement</h4>
+            <p>
+                If the cell from Stage 1 achieves a high M(20) score, and the user has the <code>Refine Zero-Point Error</code> checkbox enabled, a second, <strong>full and unconstrained</strong> refinement is performed. This final step solves for all parameters simultaneously to produce the final reported values and their estimated standard deviations. If this option is disabled, only the lattice parameters from Stage 1 are reported.
+            </p>
         </section>
 
         <section id="space-group-analysis">
@@ -311,60 +299,56 @@
             <p>
                 After a high-scoring unit cell is found, the program provides an automated analysis to suggest the most probable space groups. This feature serves as a powerful guide for subsequent structure solution or Rietveld refinement.
             </p>
-            <p>
-                The analysis relies on a comprehensive internal database of reflection conditions (<code>space_groups_complete.json</code>) derived from crystallographic libraries like <strong>Pymatgen</strong>.
-            </p>
             
             <h3>Methodology</h3>
             <p>The analysis is a systematic process of elimination based on observed systematic absences:</p>
             <ol>
                 <li>
-                    <strong>Index Observed Peaks:</strong> The program takes the refined unit cell and generates a complete theoretical reflection list. It then indexes <em>all</em> high-quality observed peaks from the user's peak list, not just the first 20.
+                    <strong>Generate Unique Reflections:</strong> The program takes the refined unit cell and generates a complete theoretical reflection list, ensuring only crystallographically unique reflections (e.g., `(100)`, but not `(-100)`) are included to prevent self-ambiguity.
                 </li>
                 <li>
-                    <strong>Build High-Confidence Set:</strong> To avoid errors from peak overlap, the algorithm filters this list to find <strong>unambiguous</strong> reflections—observed peaks that correspond to a single, non-overlapping theoretical $(hkl)$ line.
+                    <strong>Index Observed Peaks:</strong> It then indexes <em>all</em> observed peaks from the user's list against this theoretical pattern.
                 </li>
                 <li>
-                    <strong>Determine Centering:</strong> This high-confidence set of <em>observed</em> $(hkl)$s is tested against the rules for all lattice centerings (P, I, F, A, B, C, R). The program determines the most likely centering by finding the one with the <strong>minimum number of violations</strong>. A violation is defined as an <em>observed reflection</em> that <em>should be absent</em> (e.g., observing a (100) reflection for an I-centered lattice).
+                    <strong>Build High-Confidence Set:</strong> To avoid errors from accidental peak overlap (e.g., `(100)` and `(011)` having very similar $2\theta$ values), the algorithm filters the indexed list to find <strong>unambiguous</strong> reflections. A reflection is considered unambiguous only if no other theoretical $(hkl)$ line is calculated to be within the `2θ Error` tolerance of its position.
                 </li>
                 <li>
-                    <strong>Rank Space Groups:</strong> The program filters its database for <em>all</em> space groups matching the solution's crystal system (e.g., 'monoclinic') and the most plausible centering(s).
+                    <strong>Determine Centering & Extinctions:</strong> This high-confidence set of <em>observed</em> $(hkl)$s is used for all further analysis. It is tested against the rules for lattice centerings and glide/screw axes. A violation is only counted if an <em>observed unambiguous peak</em> breaks a rule.
                 </li>
                 <li>
-                    <strong>Count Extinction Violations:</strong> For each candidate space group, it checks the high-confidence observed reflections against that group's specific extinction rules for glide planes and screw axes (e.g., $0k0: k=2n$). Again, it only counts violations where an <em>observed peak</em> breaks a rule.
+                    <strong>Rank Space Groups:</strong> The program filters its internal database for all space groups matching the solution's crystal system and plausible centering(s). Each candidate group is ranked by its number of violations.
                 </li>
             </ol>
 
             <h3>How to Interpret the Results</h3>
-            <p>
-                The program ranks space groups by their number of violations. This ranking is displayed in the PDF report.
-            </p>
             <ul>
-                <li><strong>0 Violations:</strong> This is the ideal result. It means that <em>no observed reflection</em> in the high-confidence set violated any of the space group's extinction rules. These are the strongest candidates.</li>
-                <li><strong>1-2 Violations:</strong> These are still plausible. A single violation could be caused by an experimental artifact, a mis-indexed ambiguous peak, or a weak, theoretically-forbidden reflection appearing due to experimental factors.</li>
-                <li><strong>Many Violations:</strong> These space groups are highly unlikely to be correct.</li>
+                <li><strong>0 Violations:</strong> This is the ideal result. It means that <em>no observed unambiguous reflection</em> violated any of the space group's extinction rules. These are the strongest candidates.</li>
+                <li><strong>1-2 Violations:</strong> These are still plausible. A single violation could be caused by an experimental artifact or a weak, theoretically-forbidden reflection.</li>
+                <li><strong>Ambiguous Peaks (in italics):</strong> In the PDF report's reflection table, any peak that was identified as ambiguous (and therefore excluded from the analysis) is printed in an <em>italic</em> font for easy identification.</li>
             </ul>
-            <blockquote>
-                <strong>Important:</strong> This analysis is a suggestion, not a definitive assignment. It is based <em>only</em> on the observed extinctions in a powder pattern, which can be incomplete. The final determination must be made with chemical knowledge and confirmed via structure refinement.
-            </blockquote>
         </section>
         
         <section id="advanced-topics">
             <h2>Advanced Topics: Enhanced Search and Sieving</h2>
             <p>
-                To improve the success rate, the program integrates several advanced search strategies after the initial indexing routine.
+                To improve the success rate, the program integrates several advanced search strategies after the initial indexing routine is complete. These "fishing" strategies test for non-obvious but crystallographically common relationships.
             </p>
             
-            <h3>1. Matrix-based Cell Transformations</h3>
-            <p>Promising solutions are transformed using crystallographic matrices to test for related primitive or higher-symmetry cells. For example, a body-centered cell ($I$) is tested for a valid primitive ($P$) equivalent.</p>
+            <h3>1. "Swap Fishing" for Ambiguity</h3>
+            <p>
+                This is the most powerful advanced search. For each promising solution, the program re-examines the indexing of the <strong>first four low-angle peaks</strong>. It identifies the two peaks that are closest to each other, as this is a likely point of mis-indexing due to ambiguity. It then creates a new hypothesis by <strong>swapping their HKL assignments</strong> and attempts to solve for a new trial cell. This new cell is then sent back through the full refinement and scoring process. If this "swapped" hypothesis is correct, it will often lead to a solution with a significantly higher M(20) score.
+            </p>
+
+            <h3>2. Matrix-based Cell Transformations</h3>
+            <p>Solutions are transformed using crystallographic matrices to test for related primitive or higher-symmetry cells. For example, a body-centered cell ($I$) is tested for a valid primitive ($P$) equivalent.</p>
             
-            <h3>2. HKL Divisor Analysis</h3>
-            <p>The program examines the list of indexed Miller indices. If all indices in one direction (e.g., all $h$ values) share a common divisor, it tests a new cell with the corresponding axis halved.</p>
+            <h3>3. HKL Divisor Analysis</h3>
+            <p>The program examines the list of indexed Miller indices. If all indices in one direction (e.g., all $h$ values) share a common divisor, it tests a new cell with the corresponding axis halved (a sub-cell).</p>
             
-            <h3>3. Orthorhombic to Hexagonal Check</h3>
-            <p>A hexagonal lattice can be indexed as a C-centered orthorhombic cell where $b/a \approx \sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition and generates the equivalent hexagonal cell for evaluation.</p>
+            <h3>4. Orthorhombic to Hexagonal Check</h3>
+            <p>A hexagonal lattice can sometimes be indexed as a C-centered orthorhombic cell where $b/a \approx \sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition and generates the equivalent hexagonal cell for evaluation.</p>
             
-            <h3>4. Final Sieving</h3>
+            <h3>5. Final Sieving</h3>
             <p>After all searches, a final sieving process is applied. If two solutions have very similar volumes, the one with higher symmetry and a better M(20) score is preferred, and the redundant solution is discarded.</p>
         </section>
         
@@ -375,7 +359,7 @@
             <ul>
                 <li><strong>Poor Peak List:</strong> The most common cause. Ensure the peak list is accurate, with impurity peaks removed and positions refined. A minimum of 15-20 clean peaks is recommended.</li>
                 <li><strong>Incorrect Parameters:</strong> Verify the <code>Wavelength</code> and ensure the <code>Max Volume</code> is chemically reasonable and sufficiently large.</li>
-                <li><strong>High Zero-Point Error:</strong> A significant instrument misalignment may require enabling the <code>Refine Zero-Point Error</code> option.</li>
+                <li><strong>High Zero-Point Error:</strong> While the program corrects for small zero errors internally, a very large instrument misalignment may still cause failure.</li>
                 <li><strong>Sample is a Mixture:</strong> Indexing requires a peak list from a single crystalline phase.</li>
             </ul>
 
@@ -388,7 +372,7 @@
         </section>
 
 
-            <section id="references">
+                    <section id="references">
             <h2>References</h2>
             <p>This program was developed by Nita Dragoe at Université Paris-Saclay (2024-2025) as a successor to a prior software, Powder 4, originally created by the same author in 1999-2000. For a deeper understanding of the methodology, consulting the original scientific papers is highly recommended.</p>
             <ol>
@@ -444,22 +428,19 @@
                 const targetId = this.getAttribute('href');
                 const targetElement = document.querySelector(targetId);
                 
-                // Manually scroll the main-content panel
                 if (targetElement) {
                     mainContent.scrollTo({
-                        top: targetElement.offsetTop - 32, // 32px padding-top
+                        top: targetElement.offsetTop - 32,
                         behavior: 'smooth'
                     });
                 }
             });
         });
 
-        // Set the active link on load
         const updateActiveLink = () => {
             let currentActive = '';
             sections.forEach(section => {
                 const rect = section.getBoundingClientRect();
-                // Check if the top of the section is within the top 20% of the viewport
                 if (rect.top >= 0 && rect.top <= mainContent.clientHeight * 0.2) {
                     currentActive = section.getAttribute('id');
                 }
@@ -470,13 +451,11 @@
                 const activeLink = document.querySelector(`#toc a[href="#${currentActive}"]`);
                 if (activeLink) activeLink.classList.add('active');
             } else {
-                // If no section is at the top, activate the first one
                 navLinks.forEach(link => link.classList.remove('active'));
                 if (navLinks.length > 0) navLinks[0].classList.add('active');
             }
         };
         
-        // Use timeout to ensure content is rendered before first check
         setTimeout(updateActiveLink, 100);
     });
 </script>
