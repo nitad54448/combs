@@ -135,7 +135,7 @@
         <section id="introduction">
             <h1>Technical Overview & Methodology</h1>
             <p>This document provides a technical reference for the Combs Powder Indexing software. It details the program's algorithms, search parameters, and methodologies for scientists and researchers familiar with powder X-ray diffraction techniques.</p>
-            
+
             <h3>Core Methodology</h3>
             <p>
                 The goal of <em>ab initio</em> powder indexing is to determine the unit cell parameters ($a, b, c, \alpha, \beta, \gamma$) from a list of observed diffraction peak positions ($2\theta$). This program implements a system-specific, exhaustive search algorithm to solve this problem.
@@ -156,10 +156,11 @@
             <ol>
                 <li><strong>Load Data File:</strong> Use the <code>Select Data File</code> button. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.ras</code>, etc.</li>
                 <li><strong>Find Peaks:</strong> On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (pts)</code>, and <code>Points</code> sliders to accurately capture your experimental peaks.</li>
-                <li><strong>Review & Refine Peaks:</strong> Critically examine the peak list. Edit 2θ positions for accuracy, delete spurious peaks (noise, Kα2), and add any missed reflections using <code>Ctrl + Click</code> on the chart. A clean list of 15-20 peaks is ideal.</li>
+                <li><strong>Review & Refine Peaks:</strong> Critically examine the peak list. Edit 2θ positions for accuracy, delete spurious peaks (noise, Kα2 shoulders if *not* stripping), and add any missed reflections using <code>Ctrl + Click</code> on the chart. A clean list of 15-20 peaks is ideal.</li>
                 <li><strong>Set Parameters:</strong> On the <strong>Parameters</strong> tab:
                     <ul>
-                        <li>Verify the X-ray <code>Wavelength (Å)</code>.</li>
+                        <li>Select the appropriate X-ray <code>Radiation Preset</code> (e.g., Cu Ka).</li>
+                        <li>Decide whether to enable <code>Strip K-alpha2</code>. This choice updates the <code>Ka1 Wavelength</code> field automatically. The default is OFF, using the average Ka wavelength.</li>
                         <li>Set a chemically sensible <code>Max Volume (Å³)</code> to constrain the search.</li>
                         <li>Set the <code>2θ Error (°)</code> appropriate for your instrument's resolution (e.g., 0.02° for synchrotron, 0.05° for lab data).</li>
                         <li>The <strong>Refine Zero-Point Error</strong> checkbox is enabled by default and is highly recommended.</li>
@@ -170,7 +171,7 @@
                 <li><strong>Analyze Solutions:</strong> On the <strong>Solutions</strong> tab, review the results. Sort by M(20) and click on high-scoring solutions to visually compare the calculated (blue) and observed (red) peak markers on the chart. A good solution will also have plausible space group suggestions.</li>
             </ol>
         </section>
-        
+
         <section id="ui">
             <h2>The User Interface</h2>
             <p>The application is divided into the Controls Panel (left) and the Results Area (right).</p>
@@ -186,14 +187,16 @@
 
             <h4>2. Parameters Tab</h4>
             <ul>
-                <li><strong>Wavelength (Å):</strong> X-ray wavelength. Critical for d-spacing calculation.</li>
+                <li><strong>Radiation Preset:</strong> Select the X-ray source used (e.g., Cu Ka, Co Ka). This sets the appropriate wavelengths.</li>
+                <li><strong>Ka1 Wavelength (Å):</strong> Displays the wavelength being used for calculations. If a preset is selected, this value automatically updates based on the <code>Strip K-alpha2</code> setting (shows Ka1 if ON, average Ka if OFF). It is editable only when <code>Custom</code> preset is chosen.</li>
+                <li><strong>Strip K-alpha2:</strong> If checked, applies a Rachinger algorithm to numerically remove the Kα2 component from the data before peak finding and analysis. This also sets the <code>Ka1 Wavelength</code> field to the pure Kα1 value. Default is OFF.</li>
                 <li><strong>Max Volume (Å³):</strong> The upper limit for acceptable unit cell volume. A key parameter for constraining the search.</li>
-                <li><strong>2θ Error (°):</strong> Tolerance for matching calculated to observed peaks.</li>
                 <li><strong>Impurity Peaks:</strong> Number of allowed un-indexed peaks among the first 20 when calculating M(20).</li>
+                <li><strong>2θ Error (°):</strong> Tolerance for matching calculated to observed peaks.</li>
                 <li><strong>Refine Zero-Point Error:</strong> Controls whether a full, unconstrained zero-point refinement is applied to the final reported solution.</li>
                 <li><strong>Crystal Systems to Search:</strong> Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, and Monoclinic systems.</li>
             </ul>
-            
+
             <h4>3. Solutions Tab</h4>
             <ul>
                 <li><strong>Solutions Table:</strong> Lists all valid solutions found, with their system, parameters, volume, and M(20) score. Click a row to select it for visual analysis on the chart.</li>
@@ -209,22 +212,24 @@
         <section id="peak-finding">
             <h2>Peak Finding in Detail</h2>
             <p>Accurate peak positions are the most critical input for successful indexing. The program uses a multi-step process to identify peaks from raw data.</p>
-            
+
             <h4>The Algorithm Steps</h4>
             <ol>
-                <li><strong>Background Subtraction:</strong> A "rolling ball" algorithm estimates and subtracts the background signal. The <code>Radius</code> slider controls the size of the virtual ball.</li>
+                <li><strong>Kα2 Stripping (Optional):</strong> If <code>Strip K-alpha2</code> is checked, the Rachinger algorithm is applied to the raw intensity data first.</li>
+                <li><strong>Background Subtraction:</strong> A "rolling ball" algorithm estimates and subtracts the background signal from the (potentially stripped) data. The <code>Radius</code> slider controls the size of the virtual ball.</li>
                 <li><strong>Data Smoothing:</strong> A Savitzky-Golay filter is applied to the background-subtracted data to reduce noise while preserving peak shape. The <code>Points</code> slider controls the smoothing window size.</li>
                 <li><strong>Peak Detection:</strong> The algorithm identifies local maxima in the smoothed data that are above the <code>Min peak (%)</code> threshold.</li>
                 <li><strong>Position Refinement:</strong> A parabolic fit to the top three points of each detected maximum is used to calculate a sub-pixel-accuracy peak position.</li>
             </ol>
-            
+
             <h4>Practical Advice</h4>
             <ul>
                 <li>Start with default values and visually inspect the results.</li>
                 <li>If weak but clear peaks are missed, lower the <code>Min peak (%)</code>. If picking up noise, increase it.</li>
                 <li>For patterns with a broad amorphous background, increase the <code>Radius</code>.</li>
                 <li>If data is very noisy, increase smoothing <code>Points</code>, but avoid over-smoothing, which can merge or shift peaks.</li>
-                <li><strong>Always manually curate the final peak list.</strong> Remove artifacts, Kα2 shoulders, and known impurity peaks.</li>
+                <li><strong>Always manually curate the final peak list.</strong> Remove artifacts and known impurity peaks. If <strong>not</strong> stripping Kα2, be sure to delete the Kα2 shoulders manually.</li>
+                <li>Kα2 stripping can simplify patterns but may introduce small artifacts. If indexing fails with stripping ON, try turning it OFF and manually removing the α2 peaks.</li>
             </ul>
         </section>
 
@@ -267,7 +272,7 @@
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
             <p>The indexing search often produces multiple candidate solutions. Distinguishing the correct one requires a reliable figure of merit and careful refinement.</p>
-            
+
             <h3>The de Wolff Figure of Merit: M(20)</h3>
             <p>Solutions are ranked by the <strong>de Wolff Figure of Merit, M(20)</strong>, which assesses the fit's accuracy and completeness. It is calculated using the first 20 observed reflections. A high M(20) value is a strong indicator of a correct solution.</p>
             <table>
@@ -299,7 +304,7 @@
             <p>
                 After a high-scoring unit cell is found, the program provides an automated analysis to suggest the most probable space groups. This feature serves as a powerful guide for subsequent structure solution or Rietveld refinement.
             </p>
-            
+
             <h3>Methodology</h3>
             <p>The analysis is a systematic process of elimination based on observed systematic absences:</p>
             <ol>
@@ -327,34 +332,34 @@
                 <li><strong>Ambiguous Peaks (in italics):</strong> In the PDF report's reflection table, any peak that was identified as ambiguous (and therefore excluded from the analysis) is printed in an <em>italic</em> font for easy identification.</li>
             </ul>
         </section>
-        
+
         <section id="advanced-topics">
             <h2>Advanced Topics: Enhanced Search and Sieving</h2>
             <p>
                 To improve the success rate, the program integrates several advanced search strategies after the initial indexing routine is complete. These "fishing" strategies test for non-obvious but crystallographically common relationships.
             </p>
-            
+
             <h3>1. "Swap Fishing" for Ambiguity</h3>
             <p>
-                This is the most powerful advanced search. For each promising solution, the program re-examines the indexing of the <strong>first four low-angle peaks</strong>. It identifies the two peaks that are closest to each other, as this is a likely point of mis-indexing due to ambiguity. It then creates a new hypothesis by <strong>swapping their HKL assignments</strong> and attempts to solve for a new trial cell. This new cell is then sent back through the full refinement and scoring process. If this "swapped" hypothesis is correct, it will often lead to a solution with a significantly higher M(20) score.
+                For each promising solution, the program re-examines the indexing of the <strong>first four low-angle peaks</strong>. It identifies the two peaks that are closest to each other, as this is a likely point of mis-indexing due to ambiguity. It then creates a new hypothesis by <strong>swapping their HKL assignments</strong> and attempts to solve for a new trial cell. This new cell is then sent back through the full refinement and scoring process. If this "swapped" hypothesis is correct, it will often lead to a solution with a significantly higher M(20) score.
             </p>
 
             <h3>2. Matrix-based Cell Transformations</h3>
             <p>Solutions are transformed using crystallographic matrices to test for related primitive or higher-symmetry cells. For example, a body-centered cell ($I$) is tested for a valid primitive ($P$) equivalent.</p>
-            
+
             <h3>3. HKL Divisor Analysis</h3>
             <p>The program examines the list of indexed Miller indices. If all indices in one direction (e.g., all $h$ values) share a common divisor, it tests a new cell with the corresponding axis halved (a sub-cell).</p>
-            
+
             <h3>4. Orthorhombic to Hexagonal Check</h3>
             <p>A hexagonal lattice can sometimes be indexed as a C-centered orthorhombic cell where $b/a \approx \sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition and generates the equivalent hexagonal cell for evaluation.</p>
-            
+
             <h3>5. Final Sieving</h3>
             <p>After all searches, a final sieving process is applied. If two solutions have very similar volumes, the one with higher symmetry and a better M(20) score is preferred, and the redundant solution is discarded.</p>
         </section>
-        
+
         <section id="troubleshooting">
             <h2>Troubleshooting & FAQ</h2>
-            
+
             <h4>Why were no solutions found?</h4>
             <ul>
                 <li><strong>Poor Peak List:</strong> The most common cause. Ensure the peak list is accurate, with impurity peaks removed and positions refined. A minimum of 15-20 clean peaks is recommended.</li>
@@ -385,17 +390,21 @@
                     Klug, H. P. & Alexander, L. E. (1974). <em>X-Ray Diffraction Procedures for Polycrystalline and Amorphous Materials</em>, 2nd ed. New York: Wiley-Interscience.
                 </li>
                 <li>
+                    <strong>Kα2 Stripping Algorithm:</strong><br>
+                    Rachinger, W. A. (1948). "A Correction for the α1α2 Doublet in the Measurement of Widths of X-Ray Diffraction Lines." <em>Journal of Scientific Instruments</em>, <strong>25</strong>, 254-255.
+                </li>
+                <li>
                     <strong>Alternative Indexing Methods:</strong><br>
-                    Ito, T. (1949). "A General Powder X-ray Photography."<em>Nature</em>, 164, 755-756.<br> 
+                    Ito, T. (1949). "A General Powder X-ray Photography."<em>Nature</em>, 164, 755-756.<br>
                     Werner, P.-E., Eriksson, L., & Westdahl, M. (1985). "TREOR, a semi-exhaustive trial-and-error powder indexing program for all symmetries." <em>Journal of Applied Crystallography</em>, <strong>18</strong>, 367-370.<br>
                      Visser, J. W. (1969). "A fully automatic program for finding the unit cell from powder data." <em>Journal of Applied Crystallography</em>, <strong>2</strong>, 89-95.<br>
                      Le Bail, A. (2004). "Monte Carlo Indexing with McMaille". <em>Powder Diffraction</em>, <strong>19(3)</strong>, 249-254.<br>
                      Boultif, A. & Louër, D. (2004). "Powder pattern indexing with the dichotomy method." <em>Journal of Applied Crystallography</em>, <strong>37</strong>, 724-731.
-                   
+
                     </li>
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 19 Oct 2025 by an AI assistant.</p>
+                <p>Help Guide updated on 22 Oct 2025 by an AI assistant.</p>
             </div>
         </section>
 
@@ -406,7 +415,7 @@
         const sections = document.querySelectorAll('section');
         const navLinks = document.querySelectorAll('#toc a');
         const mainContent = document.getElementById('main-content');
-        
+
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -417,9 +426,9 @@
                 }
             });
         }, { root: mainContent, rootMargin: "0px 0px -80% 0px" });
-        
+
         sections.forEach(section => observer.observe(section));
-        
+
         navLinks.forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
@@ -427,7 +436,7 @@
                 this.classList.add('active');
                 const targetId = this.getAttribute('href');
                 const targetElement = document.querySelector(targetId);
-                
+
                 if (targetElement) {
                     mainContent.scrollTo({
                         top: targetElement.offsetTop - 32,
@@ -451,12 +460,19 @@
                 const activeLink = document.querySelector(`#toc a[href="#${currentActive}"]`);
                 if (activeLink) activeLink.classList.add('active');
             } else {
-                navLinks.forEach(link => link.classList.remove('active'));
-                if (navLinks.length > 0) navLinks[0].classList.add('active');
+                // If no section is clearly active at the top, default to the first one
+                 if (mainContent.scrollTop < sections[0].offsetTop + sections[0].offsetHeight) {
+                     navLinks.forEach(link => link.classList.remove('active'));
+                     if (navLinks.length > 0) navLinks[0].classList.add('active');
+                 }
             }
         };
-        
-        setTimeout(updateActiveLink, 100);
+
+        // Update active link on scroll
+        mainContent.addEventListener('scroll', updateActiveLink);
+
+        // Initial update after load
+        setTimeout(updateActiveLink, 150);
     });
 </script>
 
