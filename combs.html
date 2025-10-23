@@ -676,19 +676,19 @@ const WAVELENGTH_PRESETS = {
     };
     const debouncedFindPeaks = debounce(findPeaks, 250);
     
-    // --- *** NEW: Debounced data update *** ---
+    // --- Debounc
     const debouncedUpdateAndRedraw = debounce(() => {
         updateWorkingData();
         if (xrdChart) {
             const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
             xrdChart.data.datasets[0].data = experimentalPoints;
-            xrdChart.update('none'); // Use 'none' for no animation
+            xrdChart.update('none'); // pas d'animation, sinon c'est trop lent
         }
         findPeaks();
     }, 250);
 
 
-    // --- INITIALIZE LOG SLIDER ---
+    // --- log slider, 0.1% c'est assez ?
     const initialPeakThreshold = 2.0;
     ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
     ui.peakThresholdValue.textContent = initialPeakThreshold.toFixed(1);
@@ -720,7 +720,7 @@ const WAVELENGTH_PRESETS = {
         }, duration);
     };
 
-    // --- *** MODIFIED: Data State Variables *** ---
+    // --- data, si Ka stripped ou pas, on copie les données
     let fullExperimentalData = { tth: [], intensity: [] }; // The original, unmodified data
     let workingExperimentalData = { tth: [], intensity: [] }; // The data to be plotted and analyzed (raw or stripped)
 
@@ -964,111 +964,106 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 
 
 
-
-
-
-/**
+/*
  * Determines the most likely lattice centering based on observed reflections.
  * (This function is a helper for analyzeSystematicAbsences)
  */
 function determineCentering(indexed_hkls, system) {
     const centeringTests = {
-        'P': { 
-            name: 'Primitive (P)', 
-            forbidden: (h, k, l) => false // No restrictions
-        },
-        'I': { 
-            name: 'Body-centered (I)', 
-            forbidden: (h, k, l) => (h + k + l) % 2 !== 0 
-        },
-        'F': { 
-            name: 'Face-centered (F)', 
-            forbidden: (h, k, l) => {
-                // All must be even or all must be odd
-                const allEven = h % 2 === 0 && k % 2 === 0 && l % 2 === 0;
-                const allOdd = h % 2 !== 0 && k % 2 !== 0 && l % 2 !== 0;
-                return !(allEven || allOdd);
-            }
-        },
-        'A': { 
-            name: 'A-centered (A)', 
-            forbidden: (h, k, l) => (k + l) % 2 !== 0 
-        },
-        'B': { 
-            name: 'B-centered (B)', 
-            forbidden: (h, k, l) => (h + l) % 2 !== 0 
-        },
-        'C': { 
-            name: 'C-centered (C)', 
-            forbidden: (h, k, l) => (h + k) % 2 !== 0 
-        }
+        'P': { name: 'Primitive (P)', forbidden: (h, k, l) => false },
+        'I': { name: 'Body-centered (I)', forbidden: (h, k, l) => (h + k + l) % 2 !== 0 },
+        'F': { name: 'Face-centered (F)', forbidden: (h, k, l) => !( (h%2===0 && k%2===0 && l%2===0) || (h%2!==0 && k%2!==0 && l%2!==0) ) },
+        'A': { name: 'A-centered (A)', forbidden: (h, k, l) => (k + l) % 2 !== 0 },
+        'B': { name: 'B-centered (B)', forbidden: (h, k, l) => (h + l) % 2 !== 0 },
+        'C': { name: 'C-centered (C)', forbidden: (h, k, l) => (h + k) % 2 !== 0 }
     };
 
-    // Add rhombohedral for hexagonal/trigonal systems
-    if (system === 'hexagonal' || system === 'trigonal') {
-        centeringTests['R'] = {
-            name: 'Rhombohedral (R, obverse)',
-            forbidden: (h, k, l) => (-h + k + l) % 3 !== 0
-        };
-    }
+    // --- *** ADD THIS: Define valid Bravais centerings per system *** ---
+    const validBravaisCenterings = {
+        'cubic': ['P', 'I', 'F'],
+        'tetragonal': ['P', 'I'],
+        'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'],
+        'hexagonal': ['P'], // Rhombohedral R handled separately if needed
+        'monoclinic': ['P', 'C'], // Standard setting, others possible but less common to test directly
+        // 'triclinic': ['P'] // Not indexed here
+    };
+    // --- *** END ADD *** ---
+
+
+    // Add rhombohedral for hexagonal/trigonal systems if implemented later
+    // if (system === 'hexagonal' || system === 'trigonal') {
+    //     centeringTests['R'] = { name: 'Rhombohedral (R, obverse)', forbidden: (h, k, l) => (-h + k + l) % 3 !== 0 };
+    //     validBravaisCenterings['hexagonal'].push('R');
+    // }
 
     // Count violations: observed reflections that should be absent
     const violations = {};
     for (const [key, test] of Object.entries(centeringTests)) {
-        // This is the logic that was failing (because indexed_hkls was bad)
-        // It will now work correctly.
-        violations[key] = indexed_hkls.filter(({h, k, l}) => 
-            test.forbidden(h, k, l)
-        ).length;
+        // --- *** MODIFY THIS: Only count violations for relevant centerings *** ---
+        const allowedForSystem = validBravaisCenterings[system] || ['P']; // Default to P if system unknown
+        if (allowedForSystem.includes(key)) {
+            violations[key] = indexed_hkls.filter(({h, k, l}) => 
+                test.forbidden(h, k, l)
+            ).length;
+        }
+        // --- *** END MODIFY *** ---
     }
 
-    // Find centering(s) with minimum violations
-    const minViolations = Math.min(...Object.values(violations));
-    const plausible = Object.keys(violations).filter(key => 
-        violations[key] === minViolations
+    // --- *** MODIFY THIS: Find min violations *among valid centerings* *** ---
+    // If violations object is empty (e.g., system not recognized), default min to 0
+    const minViolations = Object.keys(violations).length > 0 ? Math.min(...Object.values(violations)) : 0;
+    
+    // Filter plausible keys BOTH by min violations AND by valid Bravais types
+    let plausible = Object.keys(violations).filter(key => 
+        violations[key] === minViolations && (validBravaisCenterings[system] || ['P']).includes(key)
     );
+    // Ensure plausible always has at least 'P' if P had min violations or if no other centering worked
+     if (plausible.length === 0 && violations['P'] === minViolations) {
+        plausible = ['P'];
+     } else if (plausible.length === 0) {
+        // Fallback if somehow nothing is plausible (shouldn't happen with P)
+        plausible = ['P'];
+     }
 
-    // Prioritize special centerings over primitive
+    // --- *** END MODIFY *** ---
+
+
+    // Prioritize special centerings over primitive (among plausible & valid options)
     let finalCenterings;
     if (plausible.includes('F')) {
         finalCenterings = ['F'];
     } else if (plausible.includes('I')) {
         finalCenterings = ['I'];
-    } else if (plausible.includes('R')) {
-        finalCenterings = ['R'];
+    // } else if (plausible.includes('R')) { // Rhombohedral handling if added
+    //     finalCenterings = ['R'];
     } else {
-        const specialCenterings = plausible.filter(c => 
-            ['A', 'B', 'C'].includes(c)
-        );
-        // This is the logic that handles your P/C case:
-        // If 'plausible' is ['P', 'C'], specialCenterings will be ['C'],
-        // and finalCenterings will be ['C'].
-        // *** EDIT ***: This should be finalCenterings = specialCenterings.length > 0 ? [...specialCenterings, 'P'] : ['P'];
-        // No, the original logic is: if C is plausible, C is preferred.
-        // Let's modify this to include P if it's also plausible.
+        const specialCenterings = plausible.filter(c => ['A', 'B', 'C'].includes(c));
         
-        // --- *** FIX *** ---
-        // If special centerings are found, add 'P' to the list
-        // if it also had zero violations.
+        // If special centerings are plausible, list them. Also list 'P' if it was equally plausible.
         finalCenterings = specialCenterings.length > 0 ? specialCenterings : ['P'];
-        if (plausible.includes('P') && !finalCenterings.includes('P')) {
-             finalCenterings.push('P');
+        if (plausible.includes('P') && !finalCenterings.includes('P') && specialCenterings.length > 0) {
+             finalCenterings.push('P'); // e.g. results in ['C', 'P'] if both are minimal and valid
         }
-        // This now means finalCenterings can be, e.g., ['C', 'P']
-        // --- *** END FIX *** ---
+         // Ensure P is always the fallback if nothing else worked
+         if (finalCenterings.length === 0) finalCenterings = ['P'];
     }
+    
+    // Filter finalCenterings again just to be absolutely sure only valid ones remain
+    finalCenterings = finalCenterings.filter(c => (validBravaisCenterings[system] || ['P']).includes(c));
+    // If filtering left it empty, default back to P
+    if (finalCenterings.length === 0) finalCenterings = ['P'];
+
 
     return {
-        plausibleCenterings: finalCenterings, // This is now a list, e.g., ['P'] or ['C', 'P']
-        description: finalCenterings.map(c => centeringTests[c].name).join(' or '),
-        violations: violations,
+        plausibleCenterings: finalCenterings, // This is now a list filtered by Bravais rules
+        description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '), // Added fallback for safety
+        violations: violations, // Show violations for all tested centerings
         minViolations: minViolations
     };
 }
 
 
 /**
- * --- *** FEATURE UPDATE *** ---
  * Detects possible systematic extinctions from observed reflections.
  * This version will list a rule as "possible" even if only one peak
  * is observed in that zone, as long as it satisfies the rule.
@@ -1115,10 +1110,6 @@ function detectExtinctions(indexed_hkls) {
     return confirmed.length > 0 ? confirmed : ["None detected"];
 }
 
-/**
- * Ranks space groups AND THEIR SETTINGS by compatibility with observed reflections.
- * (This function is a helper for analyzeSystematicAbsences)
- */
 function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations) {
     const candidateGroups = Object.values(spaceGroupData.space_groups)
         .filter(sg => sg.crystal_system === system);
@@ -1132,14 +1123,10 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
         for (const setting of sg.settings) {
             const centering = setting.symbol.charAt(0);
             
-            // --- *** FIX *** ---
-            // This now correctly checks if the setting's centering
-            // is in the list of allowed centerings (e.g., ['P', 'C'])
             if (!allowedCenterings.includes(centering) && 
                 !(allowedCenterings.includes('P') && !['I','F','A','B','C','R'].includes(centering))) {
                 continue;
             }
-            // --- *** END FIX *** ---
             
             const rules = setting.reflection_conditions || {};
             const violations = countViolations(indexed_hkls, rules);
@@ -1161,11 +1148,15 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     // Sort the final flat list by violations, then by space group number
     validSettings.sort((a, b) => {
         if (a.violations !== b.violations) return a.violations - b.violations;
-        return a.number - b.number;
+        // --- *** CHANGE FOR REQUEST 2 *** ---
+        // Sort by number DESCENDING to prioritize higher-symmetry groups
+        return b.number - a.number; 
+        // --- *** END CHANGE *** ---
     });
     
     return validSettings;
 }
+
 
 /**
  * Counts how many observed reflections violate a space group's conditions.
@@ -1374,17 +1365,17 @@ function getReflectionZone(h, k, l) {
             }
         }
         
-        // Trigger a debounced update to avoid multiple rapid refreshes
+        // Trigger a debounced update 
         debouncedUpdateAndRedraw();
         recalculatePeakValues();
         updatePeakTable();
     };
 
-    // --- *** NEW: Add event listeners for new controls *** ---
+    // --- Add event listeners 
     ui.wavelengthPreset.addEventListener('change', handleWavelengthPresetChange);
 
     ui.stripKa2Checkbox.addEventListener('change', () => {
-        // --- *** MODIFIED *** ---
+        
         const presetKey = ui.wavelengthPreset.value;
         
         // Only update wavelength if we are NOT in custom mode
@@ -1403,7 +1394,7 @@ function getReflectionZone(h, k, l) {
             updatePeakTable();
         }
         
-        // Always trigger a chart redraw (to add/remove stripping)
+        //  trigger a chart redraw (to add/remove stripping)
         debouncedUpdateAndRedraw();
     });
 
@@ -1431,7 +1422,7 @@ function getReflectionZone(h, k, l) {
     });
 
     if (ui.wavelength) {
-        // This input now reflects Ka1. It should still trigger recalculations when changed (in custom mode).
+        // if stripped, Ka1
         ui.wavelength.addEventListener('change', () => {
             if (pickedPeaks.length > 0) {
                 recalculatePeakValues();
@@ -1442,7 +1433,7 @@ function getReflectionZone(h, k, l) {
 
 /**
          * Smart file detector. It checks for known headers and extensions
-         * and falls back to a generic 2-column parser.
+         * and falls back to a generic 2-column parser. I should probably look in my old Convert code
          */
         const detectAndParseFile = (fileName, fileContent) => {
             const name = fileName.toLowerCase();
@@ -1536,7 +1527,7 @@ function getReflectionZone(h, k, l) {
                 
                 dataStarted = true; // First valid numeric pair found
 
-                // --- Validation logic ---
+                // --- vérif
                 if (x > 0) positive_x_values++;
 
                 if (last_x !== -Infinity) {
@@ -1548,7 +1539,7 @@ function getReflectionZone(h, k, l) {
                     }
                 }
                 last_x = x;
-                // --- End validation ---
+                
 
                 tth.push(x);
                 intensity.push(y);
@@ -1625,7 +1616,7 @@ function getReflectionZone(h, k, l) {
 
         ui.fileName.textContent = file.name;
 
-        // --- *** NEW: Clear previous state *** ---
+        // --- Clear previous state 
         pickedPeaks = [];
         solutions = [];
         displayedSolutions = [];
@@ -1635,7 +1626,7 @@ function getReflectionZone(h, k, l) {
         updateSolutionsTable();
         updateStartIndexingButtonState();
         ui.solutionsLed.className = 'led-indicator gray';
-        // --- *** END NEW *** ---
+        
 
         const text = await file.text();
         let parsed;
@@ -1655,7 +1646,7 @@ function getReflectionZone(h, k, l) {
             return;
         }
 
-        // --- *** NEW: Handle wavelength from file *** ---
+        // --- Handle wavelength from file, if any
         if (parsed.wavelength) {
             // This is a monochromatic, known wavelength from the file
             ui.wavelengthPreset.value = 'custom';
@@ -1669,8 +1660,7 @@ function getReflectionZone(h, k, l) {
             ui.wavelengthPreset.value = 'Cu';
             handleWavelengthPresetChange(); // Apply the 'Cu' preset
         }
-        // --- *** END NEW *** ---
-
+        
         // Store full dataset
         fullExperimentalData = { tth: parsed.tth, intensity: parsed.intensity };
         updateWorkingData(); // This will apply stripping if needed
@@ -1681,7 +1671,7 @@ function getReflectionZone(h, k, l) {
             y: Math.max(0, workingExperimentalData.intensity[i])
         }));
 
-        // Hide placeholder, show chart
+        // Hide placeholder, show chart, custom cursor depuis sept 2025
         ui.placeholder.style.display = 'none';
         ui.resultsContainer.style.display = 'flex';
         
@@ -1715,7 +1705,7 @@ function getReflectionZone(h, k, l) {
 
     // ---   setupTthSliders *** ---
     const setupTthSliders = () => {
-        // Now uses workingExperimentalData
+        // Now uses workingExperimentalData, depuis 22 oct 2025, Ka2 stripping
         if (workingExperimentalData.tth.length === 0) return;
         const min = workingExperimentalData.tth[0];
         const max = workingExperimentalData.tth[workingExperimentalData.tth.length - 1];
@@ -1828,7 +1818,8 @@ function getReflectionZone(h, k, l) {
         return result;
     };
 
-    // --- *** MODIFIED: findPeaks *** ---
+ 
+    
     function findPeaks() {
         // Now uses workingExperimentalData
         if (!workingExperimentalData || !workingExperimentalData.intensity || workingExperimentalData.intensity.length < 5) return;
@@ -1855,12 +1846,58 @@ function getReflectionZone(h, k, l) {
         }
         const candidates = localMaxIndices.filter(idx => tth[idx] >= minTth && tth[idx] <= maxTth && backgroundCorrected[idx] >= adaptiveThreshold)
             .map(idx => ({ idx, tth: tth[idx], height: smoothed[idx], backgroundCorrectedHeight: backgroundCorrected[idx] }));
+        
+        // --- Refinement Loop (with 5-point and 3-point logic) ---
         const refinedPeaks = [];
         for (const peak of candidates) {
             const { idx } = peak; let refinedTth = peak.tth;
-            if (idx > 0 && idx < n - 1) { const y1 = smoothed[idx - 1], y2 = smoothed[idx], y3 = smoothed[idx + 1]; const denominator = 2 * (y1 - 2 * y2 + y3); if (Math.abs(denominator) > 1e-10) { const delta = (y1 - y3) / denominator; if (Math.abs(delta) < 1.0) { const stepSize = idx < n - 1 ? tth[idx + 1] - tth[idx] : tth[idx] - tth[idx - 1]; refinedTth = tth[idx] + delta * stepSize; } } }
+
+            // Calculate a robust average step size around the peak
+            const avgStep = (idx > 0 && idx < n - 1) 
+                ? (tth[idx+1] - tth[idx-1]) / 2.0 
+                : (idx > 0 ? tth[idx] - tth[idx-1] : (idx < n-1 ? tth[idx+1] - tth[idx] : 0.01));
+
+            // --- Try 5-point parabola first ---
+            if (idx > 1 && idx < n - 2) { 
+                const y1 = smoothed[idx - 2];
+                const y2 = smoothed[idx - 1];
+                const y3 = smoothed[idx];
+                const y4 = smoothed[idx + 1];
+                const y5 = smoothed[idx + 2];
+
+                // 5-point least-squares quadratic fit (Savitzky-Golay coefficients)
+                // Parabola y = ax^2 + bx + c, centered at x=0 (idx)
+                const a = (2*y1 - y2 - 2*y3 - y4 + 2*y5) / 7.0;
+                const b = (-2*y1 - y2 + 0*y3 + y4 + 2*y5) / 10.0;
+                
+                // Check for valid maximum (downward parabola, a < 0)
+                if (a < -1e-10) { 
+                    const delta = -b / (2 * a); // Vertex x = -b / (2a)
+                    
+                    // Sanity check: delta should be within the 5-point window
+                    if (Math.abs(delta) < 2.0) { 
+                        refinedTth = tth[idx] + delta * avgStep;
+                    }
+                }
+            // --- FALLBACK: Use 3-point fit if 5-point fails or is near edge ---
+            } else if (idx > 0 && idx < n - 1) { 
+                const y1 = smoothed[idx - 1], y2 = smoothed[idx], y3 = smoothed[idx + 1]; 
+                const denominator = 2 * (y1 - 2 * y2 + y3); 
+                
+                // Check for valid maximum (denominator < 0)
+                if (denominator < -1e-10) { 
+                    const delta = (y1 - y3) / denominator; 
+                    if (Math.abs(delta) < 1.0) { // Sanity check: delta must be within -1 to 1
+                        refinedTth = tth[idx] + delta * avgStep; 
+                    } 
+                } 
+            } 
+            // If neither fit works, refinedTth just remains peak.tth
+            
             refinedPeaks.push({ ...peak, tth: refinedTth });
         }
+        
+        // --- Continue 
         refinedPeaks.sort((a, b) => a.tth - b.tth);
         const finalPeaks = []; const mergeThreshold = 0.02;
         for (const peak of refinedPeaks) {
@@ -1871,6 +1908,8 @@ function getReflectionZone(h, k, l) {
         pickedPeaks = finalPeaks.map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
         updatePeakTable(); updateStartIndexingButtonState();
     };
+
+
 
     const recalculatePeakValues = () => {
         const lambda = parseFloat(ui.wavelength.value);
@@ -1968,9 +2007,6 @@ function getReflectionZone(h, k, l) {
         return filteredSolutions.slice(0, 50);
     };
 
-    // ==================================================================
-    // ==         FUNCTION MODIFIED FOR PROGRESS BAR FIX               ==
-    // ==================================================================
 
 
 const startIndexing = () => {
@@ -1984,7 +2020,7 @@ const startIndexing = () => {
 
     setUIState(true); 
 
-    // --- Switch to Solutions Tab ---
+    // --- Switch to Solutions Tab when start indexing, the user can see solutions and stop... Add the filtering at the end if the stop is manual
     ui.tabButtons.forEach(btn => btn.classList.remove('active'));
     ui.tabPanels.forEach(panel => panel.classList.remove('active'));
     document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
@@ -2047,13 +2083,11 @@ const startIndexing = () => {
                 worker.terminate();
                 activeWorkers = activeWorkers.filter(w => w !== worker);
                 
-                // --- *** MODIFIED BLOCK *** ---
-                // Check if all workers are gone
+                    // Check if all workers are gone
                 if (activeWorkers.length === 0) {
                     // Call the new finalize function for a normal finish
                     finalizeIndexing(false);
                 }
-                // --- *** END MODIFICATION *** ---
             }
         };
         worker.postMessage({ ...baseParams, systemToSearch: system });
@@ -2068,19 +2102,17 @@ const startIndexing = () => {
         solutions = applyFinalSieve(solutions); 
         
         if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
-        
-        // --- *** FIX *** ---
-        // Get the 2-theta range from the sliders *once*
+
+        // Get the 2-theta range from the sliders 
         const tthMinVal = parseFloat(ui.tthMinSlider.value);
         const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
 
         // Pre-filter the peaks list based on the slider range
         const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
-        // --- *** END FIX *** ---
 
         if (spaceGroupData) {
             solutions.forEach(sol => {
-                // --- *** FIX *** ---
+      
                 // Pass the *filtered* peak list and the *max 2-theta* value
                 // to the analysis function.
                 sol.analysis = analyzeSystematicAbsences(
@@ -2091,7 +2123,7 @@ const startIndexing = () => {
                     parseFloat(ui.tthError.value),
                     tthMaxVal // Pass the slider max value
                 );
-                // --- *** END FIX *** ---
+      
             });
         } else {
             console.warn('Space group data not available');
@@ -2107,8 +2139,7 @@ const startIndexing = () => {
         if (statusTextElement) statusTextElement.textContent = '';
         
         // This will set isIndexing to false
-        setUIState(false); 
-        
+        setUIState(false);    
         sortSolutions();
         displayedSolutions = [...solutions]; // Ensure displayedSolutions is updated
         updateSolutionsTable();
@@ -2120,7 +2151,7 @@ const startIndexing = () => {
         } else {
             const message = stoppedByUser ? 'Indexing stopped by user.' : 'Indexing finished.';
             showStatus(`${message} No valid solutions were found.`, 'info');
-            // Only set to red if no solutions, otherwise keep it green if it was already green
+            // Led Only set to red if no solutions, otherwise keep it green if it was already green
             if (solutions.length === 0) {
                 ui.solutionsLed.className = 'led-indicator red';
             }
@@ -2133,11 +2164,11 @@ const startIndexing = () => {
 
     ui.reportButton.addEventListener('click', () => {
         if (isIndexing) {
-            // 1. Kill all running workers
+            // Kill all running workers... check for memory leaks if workers are going crazy with NaNs ?
             activeWorkers.forEach(w => w.terminate()); 
             activeWorkers = [];
             
-            // 2. Call the finalize function (passing 'true' for "stopped by user")
+            // Call the finalize function (passing 'true' for "stopped by user")
             // This will run the sieve, space group analysis, and then reset the UI.
             finalizeIndexing(true); 
             
@@ -2205,11 +2236,11 @@ const startIndexing = () => {
     Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
     Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
 
-    // --- *** MODIFIED: initializeChart *** ---
+    //  initializeChart
     const initializeChart = () => {
         if (xrdChart) xrdChart.destroy();
         
-        // Now uses workingExperimentalData
+        // Now uses workingExperimentalData, depuis 22 oct 2025, 
         const experimentalPoints = workingExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, workingExperimentalData.intensity[i]) }));
         const yMax = Math.max(...workingExperimentalData.intensity) || 1000;
         
@@ -2248,7 +2279,7 @@ const startIndexing = () => {
                                     }
                                     const tolerance = parseFloat(ui.tthError.value) || 0.05;
                                     if (closestPeak && minDiff < tolerance) {
-title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;                                    }
+                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;                                    }
                                 }
                                 return title;
                             },
@@ -2305,7 +2336,7 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
         xrdChart.update('none');
     };
     
-    // ==================================================================
+    // generateHKL... il y a peut être un problème ici, je vais regenerer les HKL pour l'analyse, à voir
     const generateHKL = (maxTth, params, system) => {
         const { a, b, c, beta, lambda } = params; if (!a || !lambda) return [];
         const reflections = [];
@@ -2402,8 +2433,6 @@ const formatWithError = (value, error) => {
             const places = Math.abs(value) > 10 ? 3 : 4;
             return value.toFixed(places);
         }
-
-        // --- CORRECTED LOGIC ---
         const errorMagnitude = Math.floor(Math.log10(error));
         const firstSigDigit = Math.floor(error / Math.pow(10, errorMagnitude));
 
@@ -2454,7 +2483,7 @@ const generatePDFReport = async () => {
         const tthMinVal = parseFloat(ui.tthMinSlider.value);
         const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
 
-        // --- FONTS & SIZES ---
+        // --- fonts and sizes, see later, this is esthetics, osef
         const FONT = {
             TITLE: 'helvetica',
             LABEL: 'helvetica',
@@ -2473,11 +2502,9 @@ const generatePDFReport = async () => {
         // --- Page Header & Chart ---
         const now = new Date();
         const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        
-        // --- *** NEW: Get version and URL *** ---
         const versionInfo = document.getElementById('app-footer')?.textContent || 'Combs, unknown version';
         const programURL = window.location.href;
-        // --- *** END NEW *** ---
+        
 
         doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Combs - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
         yPos += 10;
@@ -2487,7 +2514,7 @@ const generatePDFReport = async () => {
         doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
         yPos += 5;
 
-        // --- *** NEW: Add URL and Version lines *** ---
+        // --- Add URL and Version lines
         doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
         doc.text(`URL:`, margin, yPos);
         doc.setFont(FONT.DATA, 'normal').text(programURL, margin + 25, yPos);
@@ -2497,8 +2524,7 @@ const generatePDFReport = async () => {
         doc.text(`Version:`, margin, yPos);
         doc.setFont(FONT.DATA, 'normal').text(versionInfo, margin + 25, yPos);
         yPos += 5;
-        // --- *** END NEW *** ---
-
+        
         doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
         doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
         yPos += 10;
@@ -2518,7 +2544,7 @@ const generatePDFReport = async () => {
         doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
         yPos += 8;
 
-        // --- *** MODIFIED for new UI *** ---
+        // --- modif le 21 oct avec Ka2 strip
         const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
         const paramData = [
             { label: 'Radiation:', value: presetText },
@@ -2622,7 +2648,7 @@ const generatePDFReport = async () => {
                      if (yPos > 260) { doc.addPage(); yPos = 20; }
                      doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text('Possible Space Groups:', margin, yPos); yPos += 5;
                      
-                     // ... Space group listing logic remains the same ...
+                     // ... Space group listing logic, the same ...
                      const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
                      const groupsByViolation = {};
                      sgList.forEach(sg => { 
@@ -2643,7 +2669,7 @@ const generatePDFReport = async () => {
                                  groupsByNumber.get(sg.number).push(sg.symbol);
                              });
                              
-                             const sortedNumbers = Array.from(groupsByNumber.keys()).sort((a, b) => a - b);
+                            const sortedNumbers = Array.from(groupsByNumber.keys()).sort((a, b) => b - a);
                              doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
                              const maxLineLength = 85; 
                              
@@ -2685,7 +2711,10 @@ const generatePDFReport = async () => {
             yPos += 4;
             if (yPos > 255) { doc.addPage(); yPos = 20; }
 
-            // --- REFLECTION TABLE ---
+            /* --- REFLECTION TABLE, à vérifier le generate_HKL_for indexing and for analysis.. 
+            on pourrait faire un seul jeu de HKL et passer à chaque fois... on gagne en vitesse, mais la mémoire ? pour des grandes mailles, assymétriques on peut avoir 3*N integers
+            */
+
             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
             const tableHeader = ' h k l   | 2th_meas 2th_corr 2th_calc | d_corr     d_calc    | diff(2th)';
             doc.text(tableHeader, margin, yPos); yPos += 4;
@@ -2776,7 +2805,7 @@ self.onmessage = function(e) {
     // --- INITIAL SETUP ---
 const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
 
-// --- DEBUG LOGGING ---
+// --- DEBUG 
 //    console.log(`[Worker] Received ${peaks.length} peaks. Wavelength: ${wavelength}`);
 //    console.log("[Worker] Calculating q_obs (1/d^2) for all peaks:");
     const q_values_full = peaks.map(p => {
@@ -2799,7 +2828,7 @@ const N_FOR_M20 = Math.min(20, peaks.length);
     const foundSolutions = [];
     const foundSolutionMap = new Map();
 
-    // --- UTILITY & CRYSTALLOGRAPHY HELPER FUNCTIONS ---
+    // --- UTILITY & CRYSTALLOGRAPHY HELPER 
     const metricFromCell = (cell) => {
         const deg2rad = Math.PI / 180;
         const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
@@ -2869,8 +2898,8 @@ const N_FOR_M20 = Math.min(20, peaks.length);
     const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
     
 
-// == Enforces crystallographic conventions to avoid listing
-// == redundant equivalent reflections (e.g., (100) vs (010) in cubic).
+// Enforces crystallographic conventions to avoid listing
+// redundant equivalent reflections (e.g., (100) vs (010) in cubic).
 // ==================================================================
 const generateHKL_for_indexing = (maxTth, params, system) => {
      const { a, b, c, beta, lambda } = params; if (!a || !lambda) return []; const reflections = [];
@@ -2970,7 +2999,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             for (let l = -l_max; l <= l_max; l++) {
                 if (h === 0 && k === 0 && l === 0) continue;
 
-                // Add uniqueness filter for monoclinic
+                // Add  filter for monoclinic
                 if (system === 'monoclinic' && k === 0) {
                     if (h < 0) continue;
                     if (h === 0 && l <= 0) continue;
@@ -3002,7 +3031,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             }
         }
     }
-    // Sort by q-value for efficient searching
+    // Sort by q-value for efficient searching; binary search (?)
     return reflections.sort((a, b) => a.q - b.q);
 };
 
@@ -3385,8 +3414,8 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return;
     }
     
-    // --- STEP 2: Perform Least-Squares Refinement ---
-    // --- *** MODIFICATION: This block now ALWAYS runs *** ---
+    // STEP 2: Perform Least-Squares Refinement ---
+    // This block now ALWAYS runs 
     let fitResult_no_zero = null;
     const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
 
@@ -3394,7 +3423,6 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     let M_with_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
     M_with_zero.forEach((row, i) => {
         const tth_rad = tth_obs_rad[initial_peak_indices[i]];
-        // --- *** THIS IS THE FIRST CORRECTION *** ---
         row.push((-4 / (wavelength**2)) * Math.sin(tth_rad));
     });
 
@@ -3428,7 +3456,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
         fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
     }
-    // --- *** END OF MODIFICATION *** ---
+    
 
     if (!fitResult_no_zero || !fitResult_no_zero.solution) {
         return;
@@ -3444,7 +3472,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return;
     }
 
-    // --- STEP 3: Validate the refined cell with an M(20) score ---
+    // STEP 3: Validate the refined cell with an M(20) score; je devrais mettre F(N) peut être
     const q_calc_set = new Set(generateHKL_for_worker(initial_cell).map(r => r.q));
     const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
     const m20 = calculateM20(q_calc_sorted, q_obs, original_indices);
@@ -3457,7 +3485,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     final_solution_to_post.m20 = m20;
     final_solution_to_post.errors = propagateErrors(system, fitResult_no_zero, initial_cell);
     
-    // --- STEP 4: Perform the FINAL refinement WITH zero error, ONLY if the user enabled it ---
+    // STEP 4: Perform the FINAL refinement WITH zero error, if the user enabled it
     if (refineZero) {
         const all_possible_reflections = generateHKL_for_worker(initial_cell);
         const final_indexed_pairs = [];
@@ -3490,7 +3518,6 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
             M_with_zero_final.forEach((row, i) => {
                 const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]];
-                // --- *** THIS IS THE SECOND CORRECTION *** ---
                 row.push((-4 / (wavelength**2)) * Math.sin(tth_rad));
             });
 
@@ -3520,7 +3547,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         }
     }
 
-    // --- STEP 5: Post the best found solution to the UI ---
+    // STEP 5: Post the best found solution to the UI
     const key = getSolutionKey(final_solution_to_post);
     const existing = foundSolutionMap.get(key);
     if (!existing || final_solution_to_post.m20 > existing.m20) {
@@ -3534,7 +3561,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     }
 };
 
-    // --- SEARCH ALGORITHMS 
+    //  SEARCH ALGORITHMS 
     const indexCubic = () => {
         const h_max = 8;
         const totalIterations = Math.min(peaks.length, 10);
@@ -3564,7 +3591,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         if (totalIterations === 0) return;
         // ---
 
-        for (let i = 0; i < totalIterations; i++) { // <-- MODIFIED
+        for (let i = 0; i < totalIterations; i++) {
             for (let j = i + 1; j < j_depth; j++) {
                 for (let h1 = 0; h1 <= max_hkl; h1++) for (let k1 = 0; k1 <= h1; k1++) for (let l1 = 0; l1 <= max_hkl; l1++) {
                     if (!h1 && !k1 && !l1) continue;
@@ -3643,7 +3670,7 @@ const generateBasisHKLs = (max_index = 3) => {
 
 
 
-// Improved indexMonoclinic
+// indexMonoclinic, quelques soucis avec beta < 90, je vais scanner uniquement >90
 const indexMonoclinic = (opts = {}) => {
     // Options (override if needed)
     const MAX_BASIS = opts.maxBasis || 50;        // max basis size to use
@@ -3727,7 +3754,7 @@ const indexMonoclinic = (opts = {}) => {
     const plausibleCellCheck = (cell) => {
         if (!isFinite(cell.a) || !isFinite(cell.b) || !isFinite(cell.c) || !isFinite(cell.beta)) return false;
         if (cell.a <= 0 || cell.b <= 0 || cell.c <= 0) return false;
-        // Relax beta check to conventional range
+        //  beta check to conventional range
         if (cell.beta < 90 || cell.beta > 150) return false;
         if (cell.a < CELL_LIMITS.a[0] || cell.a > CELL_LIMITS.a[1]) return false;
         if (cell.b < CELL_LIMITS.b[0] || cell.b > CELL_LIMITS.b[1]) return false;
@@ -3829,11 +3856,11 @@ const indexMonoclinic = (opts = {}) => {
                 const denom = 2 * Math.sqrt(A * C);
                 if (!isFinite(denom) || Math.abs(denom) < 1e-14) continue;
                 
-                // --- *** THIS IS THE CRITICAL FIX *** ---
+                
                 // The relationship is cos(beta) = D / (2*sqrt(A*C))
                 // NOT -D / (2*sqrt(A*C)).
                 const cosBeta = D / denom;
-                // --- *** END FIX *** ---
+              
 
                 if (!isFinite(cosBeta) || Math.abs(cosBeta) > 1 - 1e-6) continue;
 
@@ -3883,22 +3910,8 @@ function calculateDeterminant3x3(M) {
            M[0][2] * (M[1][0]*M[2][1] - M[1][1]*M[2][0]);
 }
 
-// Helper function to validate cell parameters, leftover ?
-/*
-function isValidCellParams(a, b, c, beta) {
-    // Check for reasonable cell dimensions (e.g., 2-50 Angstroms)
-    if (a < 2 || a > 50 || b < 2 || b > 50 || c < 2 || c > 50) return false;
-    
-    // Check beta is in valid range for monoclinic (typically 90° < beta < 180°)
-    if (beta < 70 || beta > 110) return false;
-    
-    // Check all values are finite
-    if (!isFinite(a) || !isFinite(b) || !isFinite(c) || !isFinite(beta)) return false;
-    
-    return true;
-} */
 
-// --- DERIVED/TRANSFORMED CELL SEARCH (MODIFIED) ---
+// --- DERIVED/TRANSFORMED CELL SEARCH
 const findTransformedSolutions = (initialSolutions) => {
         const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
         const totalSolutions = initialSolutions.length;
@@ -3915,7 +3928,7 @@ const findTransformedSolutions = (initialSolutions) => {
                 } catch {}
             });
             
-            const indexedPeaks = []; // Re-index for GCD and Ortho-Hexagonal checks
+            const indexedPeaks = []; // Re-index for GCD and Ortho-Hexagonal checks, comme CheckCell
             const theoretical_hkls_for_tf = generateHKL_for_worker(sol);
             for(let i=0; i<N_FOR_M20; i++){
                  const q_o = q_obs[i];
@@ -3999,7 +4012,7 @@ const findTransformedSolutions = (initialSolutions) => {
     };
        
 
- // --- EXECUTION & REPORTING (MODIFIED) ---
+ // --- EXECUTION & REPORTING
     postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...` });
     self.postMessage({ type: 'progress', payload: 1 }); // Start at 1%
 
@@ -4028,9 +4041,19 @@ const findTransformedSolutions = (initialSolutions) => {
     // ---
 };
 
+/*
+*** 21 oct 2025
+- changement UI pour Ka2 strip
+- changement de la partie traitement des données uniquement sur workingdata, identiques ou non à ce qu'on a lu
+- changement de rapport pour inclure la nouvelle valeur et calcul de Ka1 ou Ka moyen
+*** 23 oct 2025: 
+- ajout de filtre lattice de Bravais pour le rapport PDF
+- Savitzy avec 5 points pour les pics
+- ordre de SG du plus symmetrique vers le standard
+*/
 
 </script>
 
-<div id="app-footer">Combs, version 22 oct 2025</div>
+<div id="app-footer">Combs, version 23 oct 2025</div>
 </body>
 </html>
