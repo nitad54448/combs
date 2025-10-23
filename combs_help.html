@@ -219,7 +219,9 @@
                 <li><strong>Background Subtraction:</strong> A "rolling ball" algorithm estimates and subtracts the background signal from the (potentially stripped) data. The <code>Radius</code> slider controls the size of the virtual ball.</li>
                 <li><strong>Data Smoothing:</strong> A Savitzky-Golay filter is applied to the background-subtracted data to reduce noise while preserving peak shape. The <code>Points</code> slider controls the smoothing window size.</li>
                 <li><strong>Peak Detection:</strong> The algorithm identifies local maxima in the smoothed data that are above the <code>Min peak (%)</code> threshold.</li>
-                <li><strong>Position Refinement:</strong> A parabolic fit to the top three points of each detected maximum is used to calculate a sub-pixel-accuracy peak position.</li>
+                <li>
+                    <strong>Position Refinement:</strong> To find a precise, sub-pixel peak position, the algorithm performs a 5-point least-squares quadratic fit (based on Savitzky-Golay coefficients) on the data points surrounding the detected maximum. This is more accurate than a simple 3-point parabola and robust against noise. If a peak is too close to the data's edge, it falls back to a 3-point fit.
+                </li>
             </ol>
 
             <h4>Practical Advice</h4>
@@ -264,7 +266,11 @@
                 <li>
                     <strong>Monoclinic (4 parameters, $A, B, C, D$):</strong>
                     Solves a 4x4 system for the four reciprocal parameters ($A, B, C, D$) in the equation $Q_{hkl} = A h^2 + B k^2 + C l^2 + D hl$.
-                    It iterates through <em>quadruplets</em> of observed peaks (from the first 20), assigning <em>quadruplets</em> of trial $(hkl)$ vectors from a dynamically generated, curated basis set of 50 common, low-index reflections.
+                    A full exhaustive search is computationally infeasible (over 1.1 trillion combinations). Instead, the program uses a deep <strong>random sampling strategy</strong>.
+                    <br><br>
+                    It iterates through all combinations of 4 peaks from the first 20 (approx. 4,845 combos). For <em>each</em> peak quadruplet, it tests <strong>10000</strong> randomly sampled HKL-quadruplets. These HKLs are drawn from a curated basis set of 50 common, low-index reflections. Finally, it tests all 24 permutations of assigning the peaks to the HKLs.
+                    <br><br>
+                    This results in a total search space of approximately $\binom{20}{4} \times 10,000 \times 24 \approx \textbf{1.16 billion trials}$, providing a deep and thorough search in a manageable time.
                 </li>
             </ul>
         </section>
@@ -354,7 +360,16 @@
             <p>A hexagonal lattice can sometimes be indexed as a C-centered orthorhombic cell where $b/a \approx \sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition and generates the equivalent hexagonal cell for evaluation.</p>
 
             <h3>5. Final Sieving</h3>
-            <p>After all searches, a final sieving process is applied. If two solutions have very similar volumes, the one with higher symmetry and a better M(20) score is preferred, and the redundant solution is discarded.</p>
+            <p>
+                After all searches, a final sieving process is applied to remove redundant solutions. If two solutions have very similar volumes (within 1%), the one with higher symmetry is preferred.
+            </p>
+            <p>
+                If the symmetries are also equal (e.g., two different monoclinic cells), the program compares their M(20) scores. Crucially, it treats M(20) scores as "effectively equal" if they are within a small tolerance (e.g., $\Delta M(20) < 0.05$). In this tie-breaker scenario, it invokes crystallographic conventions:
+            </p>
+            <ul>
+                <li><strong>For Monoclinic Cells:</strong> If two solutions have effectively equal M(20) scores, the program will prefer the solution whose $\beta$ angle is <strong>closer to 90°</strong> (e.g., 106° will be preferred over 147°).</li>
+                <li><strong>For Other Systems:</strong> If M(20) scores are tied, the first solution found is retained.</li>
+            </ul>
         </section>
 
         <section id="troubleshooting">
@@ -404,7 +419,7 @@
                     </li>
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 22 Oct 2025 by an AI assistant.</p>
+                <p>Help Guide updated on 23 Oct 2025 by an AI assistant.</p>
             </div>
         </section>
 
