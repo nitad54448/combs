@@ -749,8 +749,7 @@ const WAVELENGTH_PRESETS = {
 
     // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
     const max_hkl_analysis = 10;
-
-function generateHKL_for_analysis(params, lambda, maxTth) {
+    function generateHKL_for_analysis(params, lambda, maxTth) {
     const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
     const b = b_in ?? a;
     const c = c_in ?? a;
@@ -764,7 +763,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
     const l_max = Math.ceil(c / d_min) + 1;
 
     const processReflection = (h, k, l, inv_d_sq) => {
-        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return;
+        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return; // This check remains
         const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
         if (sinThetaSq <= 1) {
             const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
@@ -775,10 +774,17 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
     switch (system) {
         case 'cubic':
             for (let h = 0; h <= h_max; h++) {
+                const h_term = (h * h) / (a * a);
+                if (h_term > q_max_limit) break; // OPTIMIZATION
+                
                 for (let k = 0; k <= h; k++) {
+                    const hk_term = h_term + (k * k) / (a * a);
+                    if (hk_term > q_max_limit) break; // OPTIMIZATION
+                    
                     for (let l = 0; l <= k; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
-                        const inv_d_sq = (h * h + k * k + l * l) / (a * a);
+                        const inv_d_sq = hk_term + (l * l) / (a * a);
+                        // processReflection will handle the final q_max check
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
@@ -787,18 +793,36 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
 
         case 'tetragonal':
         case 'hexagonal':
-            for (let h = 0; h <= h_max; h++) {
-                for (let k = 0; k <= h; k++) {   // triangular domain for speed + no duplicates
-                    for (let l = 0; l <= l_max; l++) {
+            // Loop l first, as it's independent
+            for (let l = 0; l <= l_max; l++) {
+                const l_term = (l * l) / (c * c);
+                if (l_term > q_max_limit) break; // OPTIMIZATION
+                
+                for (let h = 0; h <= h_max; h++) {
+                    let h_term_base, hk_term;
+                    if (system === 'tetragonal') {
+                        h_term_base = (h * h) / (a * a);
+                    } else { // hexagonal
+                        h_term_base = (4 / 3) * (h * h) / (a * a);
+                    }
+                    if (l_term + h_term_base > q_max_limit && h > 0) break; // OPTIMIZATION
+
+                    for (let k = 0; k <= h; k++) {
                         if (h === 0 && k === 0 && l === 0) continue;
 
                         let inv_d_sq;
                         if (system === 'tetragonal') {
-                            inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c * c);
+                            inv_d_sq = l_term + (h * h + k * k) / (a * a);
                         } else { // hexagonal
-                            inv_d_sq = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
+                            inv_d_sq = l_term + (4 / 3) * (h * h + h * k + k * k) / (a * a);
                         }
-
+                        
+                        // Check before processing
+                        if (inv_d_sq > q_max_limit) {
+                             if (k === 0) break; // Break h-loop if k=0 fails
+                             else continue; // Just skip this k
+                        }
+                        
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
@@ -807,10 +831,16 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
 
         case 'orthorhombic':
             for (let h = 0; h <= h_max; h++) {
+                const h_term = (h * h) / (a * a);
+                if (h_term > q_max_limit) break; // OPTIMIZATION
+                
                 for (let k = 0; k <= k_max; k++) {
+                    const hk_term = h_term + (k * k) / (b * b);
+                    if (hk_term > q_max_limit) break; // OPTIMIZATION
+                    
                     for (let l = 0; l <= l_max; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
-                        const inv_d_sq = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c);
+                        const inv_d_sq = hk_term + (l * l) / (c * c);
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
@@ -818,6 +848,8 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
             break;
 
         case 'monoclinic':
+            // Monoclinic is hard to prune this way due to the h*l term.
+            // The existing check inside processReflection is the most robust.
             const sinBeta = Math.sin(beta * Math.PI / 180);
             const cosBeta = Math.cos(beta * Math.PI / 180);
             const sinBetaSq = sinBeta * sinBeta;
@@ -825,6 +857,9 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
 
             for (let h = -h_max; h <= h_max; h++) {
                 for (let k = 0; k <= k_max; k++) {
+                    const k_term = (k * k) / (b * b);
+                    if (k_term > q_max_limit) break; // OPTIMIZATION
+                    
                     for (let l = -l_max; l <= l_max; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
                         if (k === 0) {
@@ -836,7 +871,8 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                                 (h * h / (a * a) +
                                 l * l / (c * c) -
                                 2 * h * l * cosBeta / (a * c)) +
-                            k * k / (b * b);
+                            k_term; // Use pre-calculated k_term
+                        
                         processReflection(h, k, l, inv_d_sq);
                     }
                 }
@@ -844,7 +880,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
             break;
     }
 
-    // Deduplicate reflections
+    // ... (rest of the function for deduplication is unchanged) ...
     const uniqueReflections = [];
     const tolerance = 1e-4;
     if (reflections.length > 0) {
@@ -1433,7 +1469,7 @@ function getReflectionZone(h, k, l) {
 
 /**
          * Smart file detector. It checks for known headers and extensions
-         * and falls back to a generic 2-column parser. I should probably look in my old Convert code
+         * and falls back to a generic 2-column parser.
          */
         const detectAndParseFile = (fileName, fileContent) => {
             const name = fileName.toLowerCase();
@@ -1441,49 +1477,68 @@ function getReflectionZone(h, k, l) {
             const firstLine = lines.length > 0 ? lines[0].trim() : '';
             const upperContent = fileContent.substring(0, 500).toUpperCase(); // Check first 500 chars
 
-            // --- XML Formats ---
-            if (name.endsWith('.xrdml') || (fileContent.includes('<?xml') && fileContent.includes('<xrdMeasurement'))) {
-                return parseXrdmlFile(fileContent);
-            }
-            if (name.endsWith('.brml') || (fileContent.includes('<?xml') && fileContent.includes('<RawDataFile'))) {
-                return parseBrukerBrmlFile(fileContent);
-            }
-            // Best-guess for Rigaku RASX (also XML)
-            if (name.endsWith('.rasx') && fileContent.includes('<?xml')) {
-                return parseBrukerBrmlFile(fileContent); // Try Bruker/XRDML parser
-            }
-
-            // --- Specific Text Headers ---
-            if (name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION')) {
-                return parseUxdFile(fileContent);
-            }
-            if (name.endsWith('.ras') || upperContent.includes('*RAS_HEADER_START')) {
-                return parseRigakuRasFile(fileContent);
-            }
-            // Add Philips RD/SD
-            if (name.endsWith('.udf') || name.endsWith('.rd') || name.endsWith('.sd')) {
-                return parsePhilipsUdfFile(fileContent);
-            }
-
-            // --- GSAS Formats ---
-            const bankLine = lines.find(line => line.trim().toUpperCase().startsWith('BANK'));
-            if (bankLine) {
-                if (bankLine.toUpperCase().includes('STD')) { // GSAS XRA
-                    return parseGsasXraFile(fileContent);
+            // --- Parser Registry ---
+            const PARSER_REGISTRY = [
+                { // XRDML
+                    test: (name, content) => name.endsWith('.xrdml') || (content.includes('<?xml') && content.includes('<xrdMeasurement')),
+                    parser: parseXrdmlFile
+                },
+                { // BRML
+                    test: (name, content) => name.endsWith('.brml') || (content.includes('<?xml') && content.includes('<RawDataFile')),
+                    parser: parseBrukerBrmlFile
+                },
+                { // Rigaku RASX (try brml parser)
+                    test: (name, content) => name.endsWith('.rasx') && content.includes('<?xml'),
+                    parser: parseBrukerBrmlFile
+                },
+                { // UXD
+                    test: (name, content, firstLine) => name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION'),
+                    parser: parseUxdFile
+                },
+                { // Rigaku RAS
+                    test: (name, content, firstLine, upper) => name.endsWith('.ras') || upper.includes('*RAS_HEADER_START'),
+                    parser: parseRigakuRasFile
+                },
+                { // Philips UDF/RD/SD
+                    test: (name) => name.endsWith('.udf') || name.endsWith('.rd') || name.endsWith('.sd'),
+                    parser: parsePhilipsUdfFile
+                },
+                { // GSAS ESD/XRA
+                    test: (name, content, firstLine, upper, allLines) => allLines.some(line => line.trim().toUpperCase().startsWith('BANK')),
+                    parser: (content, allLines) => {
+                        const bankLine = allLines.find(line => line.trim().toUpperCase().startsWith('BANK'));
+                        if (bankLine.toUpperCase().includes('STD')) {
+                            return parseGsasXraFile(content);
+                        }
+                        return parseGsasEsdFile(content);
+                    }
+                },
+                { // Jade MDI (treat as 2-column)
+                     test: (name, content, firstLine, upper) => name.endsWith('.mdi') && (upper.includes('2-THETA, INTENSITY') || upper.startsWith('(SAMPLE')),
+                     parser: parseDataFile
                 }
-                return parseGsasEsdFile(fileContent); // GSAS ESD
-            }
+            ];
             
-            // --- Jade MDI (treat as 2-column) ---
-            if (name.endsWith('.mdi') && (upperContent.includes('2-THETA, INTENSITY') || upperContent.startsWith('(SAMPLE'))) {
-                return parseDataFile(fileContent, name);
+            // --- Iterate Registry ---
+            for (const rule of PARSER_REGISTRY) {
+                try {
+                    if (rule.test(name, fileContent, firstLine, upperContent, lines)) {
+                        // Pass 'content' to parser, but 'lines' to the special GSAS one
+                        if (rule.parser.length > 1) {
+                             return rule.parser(fileContent, lines); // For GSAS parser
+                        }
+                        return rule.parser(fileContent);
+                    }
+                } catch (e) {
+                    console.warn(`Parser ${rule.parser.name} failed, trying next...`, e.message);
+                }
             }
 
             // --- Fallback for all other 2-column-like formats ---
-            // This will attempt to parse: .xy, .xye, .dat, .asc, .2cl, .cpi, .xda, .xdd, .cin, .plv
-            return parseDataFile(fileContent, name);
+            // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.
+            return parseDataFile(fileContent, fileName);
         };
-        
+    
         /**
          * Generic 2-column parser. This is the fallback for most text files.
          * Includes validation logic for 2-theta (X) and step size (dX).
@@ -1818,8 +1873,7 @@ function getReflectionZone(h, k, l) {
         return result;
     };
 
- 
-    
+
     function findPeaks() {
         // Now uses workingExperimentalData
         if (!workingExperimentalData || !workingExperimentalData.intensity || workingExperimentalData.intensity.length < 5) return;
@@ -1857,7 +1911,7 @@ function getReflectionZone(h, k, l) {
                 ? (tth[idx+1] - tth[idx-1]) / 2.0 
                 : (idx > 0 ? tth[idx] - tth[idx-1] : (idx < n-1 ? tth[idx+1] - tth[idx] : 0.01));
 
-            // --- Try 5-point parabola first ---
+            // --- Try 5-point parabola first (more accurate) ---
             if (idx > 1 && idx < n - 2) { 
                 const y1 = smoothed[idx - 2];
                 const y2 = smoothed[idx - 1];
@@ -1908,7 +1962,6 @@ function getReflectionZone(h, k, l) {
         pickedPeaks = finalPeaks.map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
         updatePeakTable(); updateStartIndexingButtonState();
     };
-
 
 
     const recalculatePeakValues = () => {
@@ -1987,18 +2040,65 @@ function getReflectionZone(h, k, l) {
         if (solutions.length <= 1) return solutions;
         showStatus('Applying final sieve to results...', 'info', 2000);
         const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2 };
+        
+        // Sort by Volume first
         solutions.sort((a, b) => a.volume - b.volume);
+        
         const toKeep = new Array(solutions.length).fill(true);
         for (let i = 0; i < solutions.length; i++) {
             if (!toKeep[i]) continue;
             for (let j = i + 1; j < solutions.length; j++) {
                 if (!toKeep[j]) continue;
                 const vol_i = solutions[i].volume; const vol_j = solutions[j].volume;
+                
+                // Break if volumes are different by more than 1%
                 if (vol_j > vol_i * 1.01) break;
+                
                 const sym_i = symmetryOrder[solutions[i].system]; const sym_j = symmetryOrder[solutions[j].system];
-                if (sym_i > sym_j) toKeep[j] = false;
-                else if (sym_j > sym_i) { toKeep[i] = false; break; } 
-                else { if (solutions[i].m20 >= solutions[j].m20) toKeep[j] = false; else { toKeep[i] = false; break; } }
+                
+                if (sym_i > sym_j) {
+                    toKeep[j] = false; // i has higher symmetry
+                } else if (sym_j > sym_i) {
+                    toKeep[i] = false; // j has higher symmetry
+                    break;
+                } else { 
+                    // Symmetries are equal
+                    const m20_i = solutions[i].m20;
+                    const m20_j = solutions[j].m20;
+                    
+                    // --- *** MODIFIED LOGIC HERE *** ---
+                    // Treat M(20) scores as "equal" if they are within a small tolerance
+                    const m20_tolerance = 0.05; 
+
+                    if (m20_i > (m20_j + m20_tolerance)) {
+                        toKeep[j] = false; // i is clearly better
+                    
+                    } else if (m20_j > (m20_i + m20_tolerance)) {
+                        toKeep[i] = false; // j is clearly better
+                        break; 
+                    
+                    } else {
+                        // M(20) are effectively equal, check for monoclinic beta convention
+                        if (solutions[i].system === 'monoclinic') {
+                            const beta_i = solutions[i].beta || 90;
+                            const beta_j = solutions[j].beta || 90;
+                            
+                            // Calculate "unconventionality" (distance from 90)
+                            const conventional_i = Math.abs(beta_i - 90);
+                            const conventional_j = Math.abs(beta_j - 90);
+
+                            if (conventional_i <= conventional_j) {
+                                 toKeep[j] = false; // i is more conventional (or equal), keep i
+                            } else {
+                                 toKeep[i] = false; // j is more conventional, keep j
+                                 break;
+                            }
+                        } else {
+                            // For other systems with a tie, just keep the first one
+                            toKeep[j] = false;
+                        }
+                    }
+                }
             }
         }
         const filteredSolutions = solutions.filter((_, index) => toKeep[index]);
@@ -2006,7 +2106,6 @@ function getReflectionZone(h, k, l) {
         if (numDiscarded > 0) showStatus(`Sieve discarded ${numDiscarded} redundant solution(s).`, 'success');
         return filteredSolutions.slice(0, 50);
     };
-
 
 
 const startIndexing = () => {
@@ -3586,7 +3685,6 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
 
     const indexTetragonalOrHexagonal = (system) => {
         const max_hkl = 5, i_depth = Math.min(10, peaks.length), j_depth = Math.min(10, peaks.length);
-        // --- MODIFIED ---
         const totalIterations = i_depth;
         if (totalIterations === 0) return;
         // ---
@@ -3667,18 +3765,16 @@ const generateBasisHKLs = (max_index = 3) => {
     return hkls;
 };
 
-
-
-
 // indexMonoclinic, quelques soucis avec beta < 90, je vais scanner uniquement >90
 const indexMonoclinic = (opts = {}) => {
     // Options (override if needed)
     const MAX_BASIS = opts.maxBasis || 50;        // max basis size to use
     const MAX_PEAKS = opts.maxPeaks || 20;       // use first N peaks
     const SAMPLE_COMBINATIONS = opts.sampleCombinations || false; 
-    const SAMPLE_TRIES = opts.sampleTries || 20000; 
+    const HKL_SAMPLE_SIZE = opts.hklSampleSize || 10000;  //augmenté de 5 à 10k
+  //  const SAMPLE_TRIES = opts.sampleTries || 20000; 
     const MIN_DET = opts.minDeterminant || 1e-8; 
-    const CELL_LIMITS = opts.cellLimits || { a: [0.5, 50], b: [0.5, 50], c: [0.5, 50] }; 
+    const CELL_LIMITS = opts.cellLimits || { a: [2, 50], b: [2, 50], c: [2, 50] }; 
 
     // 1) Decide peaks to use
     const max_p = Math.min(MAX_PEAKS, q_obs.length);
@@ -3815,7 +3911,7 @@ const indexMonoclinic = (opts = {}) => {
     for (const peakIndices of combos) {
         
         const hklsIter = hklsShouldSample ? (() => {
-            const tries = Math.min(5000, SAMPLE_TRIES);
+            const tries = HKL_SAMPLE_SIZE;
             const yielded = [];
             for (let t = 0; t < tries; t++) {
                 const pick = [];
@@ -4049,7 +4145,9 @@ const findTransformedSolutions = (initialSolutions) => {
 *** 23 oct 2025: 
 - ajout de filtre lattice de Bravais pour le rapport PDF
 - Savitzy avec 5 points pour les pics
-- ordre de SG du plus symmetrique vers le standard
+- ordre des groupes d'espaces du plus symmetrique vers le standard dans le rapport
+- 1.18 milliard de cellules en monoclinic !
+- better sieveng -prend le beta le plus proche de 90, si le volume et M sont les mêmes
 */
 
 </script>
