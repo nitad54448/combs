@@ -359,7 +359,26 @@
             <h3>4. Orthorhombic to Hexagonal Check</h3>
             <p>A hexagonal lattice can sometimes be indexed as a C-centered orthorhombic cell where $b/a \approx \sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition and generates the equivalent hexagonal cell for evaluation.</p>
 
-            <h3>5. Final Sieving</h3>
+            <h3>5. Niggli Cell Standardization</h3>
+            <p>
+                After a potential solution is found, the program calculates its <strong>Niggli reduced cell</strong>. This is a fundamental and unique, standardized representation of the crystal lattice, also known as the "reduced primitive cell".
+            </p>
+            <p>
+                The calculation first transforms the conventional (centered) cell found by the program—using the detected centering (e.g., 'I', 'F', 'C')—into its primitive form. It then applies a mathematical reduction algorithm to find the basis vectors ($a, b, c$) and angles ($\alpha, \beta, \gamma$) that are the most "compact" and obey a specific set of geometric rules.
+            </p>
+            <p>
+                This Niggli cell is extremely useful for:
+            </p>
+            <ul>
+                <li><strong>Identifying a structure:</strong> It provides a canonical form for searching crystal databases (like the ICDD or CSD), as two different conventional cells (e.g., a C-centered monoclinic and a primitive monoclinic) can reduce to the same Niggli cell if they describe the same lattice.</li>
+                <li><strong>Symmetry determination:</strong> The specific conditions of the Niggli cell parameters directly correlate with the 14 Bravais lattices and 7 crystal systems.</li>
+                <li><strong>Standardization:</strong> It removes ambiguity in how a unit cell is reported.</li>
+            </ul>
+            <p>
+                The calculated Niggli cell for each high-scoring solution is reported in the detailed section of the PDF report to aid in further analysis and database comparison.
+            </p>
+
+            <h3>6. Final Sieving</h3>
             <p>
                 After all searches, a final sieving process is applied to remove redundant solutions. If two solutions have very similar volumes (within 1%), the one with higher symmetry is preferred.
             </p>
@@ -419,7 +438,7 @@
                     </li>
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 23 Oct 2025 by an AI assistant.</p>
+                <p>Help Guide updated on 24 Oct 2025 by an AI assistant.</p>
             </div>
         </section>
 
