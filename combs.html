@@ -896,6 +896,7 @@ const WAVELENGTH_PRESETS = {
 }
 
 
+
 /**
  * Analyzes observed diffraction peaks to determine compatible space groups.
  * Uses an INCLUSIVE approach: only flags violations when forbidden reflections are OBSERVED.
@@ -981,13 +982,18 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 
     const centeringResult = determineCentering(hkls_for_analysis, solution.system);
     const detectedExtinctions = detectExtinctions(hkls_for_analysis);
+    
+    // --- [MODIFICATION] ---
+    // Pass 'detectedExtinctions' as the final argument
     const rankedSpaceGroups = rankSpaceGroups(
         hkls_for_analysis,
         solution.system,
         centeringResult.plausibleCenterings,
         spaceGroupData,
-        MAX_VIOLATIONS
+        MAX_VIOLATIONS,
+        detectedExtinctions // <-- ADD THIS ARGUMENT
     );
+    // --- [END MODIFICATION] ---
 
     return {
         centering: centeringResult.description,
@@ -997,7 +1003,6 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         ambiguousHkls: ambiguousHkls
     };
 }
-
 
 
 /*
@@ -1146,11 +1151,15 @@ function detectExtinctions(indexed_hkls) {
     return confirmed.length > 0 ? confirmed : ["None detected"];
 }
 
-function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations) {
+
+function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations, detectedExtinctions) {
     const candidateGroups = Object.values(spaceGroupData.space_groups)
         .filter(sg => sg.crystal_system === system);
     
     const validSettings = [];
+    
+    // --- [NEW] Create a Set of detected rules for fast lookup ---
+    const detectedExtinctionsSet = new Set(detectedExtinctions.filter(e => e !== "None detected"));
     
     for (const sg of candidateGroups) {
         const sgNumber = sg.number;
@@ -1168,6 +1177,40 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
             const violations = countViolations(indexed_hkls, rules);
             
             if (violations.count <= maxViolations) {
+                
+                // --- [NEW] SCORING LOGIC ---
+                let matchScore = 0;
+                const sgRulesSet = new Set();
+                
+                // 1. Flatten the space group's rules into a set of strings
+                Object.entries(rules).forEach(([zone, conditions]) => {
+                    conditions.forEach(cond => {
+                        sgRulesSet.add(`${zone}: ${cond}`);
+                    });
+                });
+
+                // 2. Compare with detectedExtinctions
+                
+                // +10 points for every detected extinction that the space group *also* has.
+                detectedExtinctionsSet.forEach(detectedRule => {
+                    if (sgRulesSet.has(detectedRule)) {
+                        matchScore += 10; 
+                    }
+                });
+
+                // -1 point for every rule the space group has that was *not* detected.
+                sgRulesSet.forEach(sgRule => {
+                    if (!detectedExtinctionsSet.has(sgRule)) {
+                        matchScore -= 1; 
+                    }
+                });
+                
+                // If no extinctions were detected, give a small boost to primitive groups (0 rules)
+                if (detectedExtinctionsSet.size === 0 && sgRulesSet.size === 0) {
+                    matchScore = 1; 
+                }
+                // --- [END NEW] SCORING LOGIC ---
+
                 validSettings.push({
                     number: sgNumber,
                     symbol: setting.symbol, 
@@ -1175,20 +1218,29 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                     pointGroup: sg.point_group,
                     centrosymmetric: sg.centrosymmetric,
                     violations: violations.count,
-                    violatedReflections: violations.details
+                    violatedReflections: violations.details,
+                    matchScore: matchScore // <-- Add the new score to the object
                 });
             }
         }
     }
     
-    // Sort the final flat list by violations, then by space group number
+   
     validSettings.sort((a, b) => {
-        if (a.violations !== b.violations) return a.violations - b.violations;
-        // --- *** CHANGE FOR REQUEST 2 *** ---
-        // Sort by number DESCENDING to prioritize higher-symmetry groups
+        // 1. Primary sort: Violations (ascending)
+        if (a.violations !== b.violations) {
+            return a.violations - b.violations;
+        }
+        
+        // 2. Secondary sort: New matchScore (descending)
+        if (a.matchScore !== b.matchScore) {
+            return b.matchScore - a.matchScore; // Higher score is better
+        }
+        
+        // 3. Tertiary sort: Space Group Number (descending)
         return b.number - a.number; 
-        // --- *** END CHANGE *** ---
     });
+    
     
     return validSettings;
 }
@@ -1669,6 +1721,14 @@ function getReflectionZone(h, k, l) {
         const file = e.target.files[0];
         if (!file) return;
 
+        const MAX_FILE_SIZE_MB = 50;
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+            showStatus(`Error: File is too large (>${MAX_FILE_SIZE_MB} MB).`, "error");
+            ui.fileInputLabel.classList.add('error');
+            e.target.value = null; // Clear the input
+            return;
+        }
+
         ui.fileName.textContent = file.name;
 
         // --- Clear previous state 
@@ -1873,6 +1933,11 @@ function getReflectionZone(h, k, l) {
         return result;
     };
 
+
+
+
+
+    
 
     function findPeaks() {
         // Now uses workingExperimentalData
@@ -2189,6 +2254,22 @@ const startIndexing = () => {
                 }
             }
         };
+
+worker.onerror = (err) => {
+            console.error(`Worker for ${system} crashed:`, err.message, err);
+            showStatus(`Error in ${system} worker. See console.`, "error", 8000);
+            
+            // Clean up the failed worker
+            worker.terminate();
+            activeWorkers = activeWorkers.filter(w => w !== worker);
+            workerProgress[workerIndex] = 100; // Mark as "done" to not block completion
+            
+            // Check if all other workers are finished
+            if (activeWorkers.length === 0) {
+                finalizeIndexing(false); // Finalize with whatever solutions we have
+            }
+        };
+
         worker.postMessage({ ...baseParams, systemToSearch: system });
     });
 };
@@ -2555,337 +2636,812 @@ const formatWithError = (value, error) => {
     };
 
 
-
-const generatePDFReport = async () => {
-    if (displayedSolutions.length === 0) {
-        showStatus("No solutions found to generate a report.", 'info');
-        return;
+    /* Niggli Math helpers, there are some duplictaes in this code*/
+    const TAU = Math.PI * 2;
+    const DEG = 180 / Math.PI;
+    const RAD = Math.PI / 180;
+    
+    function clamp01(x) { return Math.max(-1, Math.min(1, x)); }
+    function sgn(x) { return x >= 0 ? 1 : -1; }
+    
+    /** Build orthonormal Cartesian basis from cell params (a,b,c,alpha,beta,gamma) */
+    function cellToBasis(a, b, c, alpha, beta, gamma) {
+      const ca = Math.cos(alpha * RAD);
+      const cb = Math.cos(beta * RAD);
+      const cg = Math.cos(gamma * RAD);
+      const sg = Math.sin(gamma * RAD);
+    
+      // a along x; b in xy-plane; c general
+      const ax = a, ay = 0, az = 0;
+      const bx = b * cg, by = b * sg, bz = 0;
+    
+      // cx derived to satisfy cos(beta) = (a·c)/(|a||c|)
+      const cx = c * cb;
+      // cy from cos(alpha) = (b·c)/(|b||c|)
+      const cy = c * (ca - cb * cg) / sg;
+      // cz from length
+      const cz2 = c * c - cx * cx - cy * cy;
+      const cz = cz2 > 0 ? Math.sqrt(cz2) : 0;
+    
+      // columns are a, b, c
+      return [
+        [ax, bx, cx],
+        [ay, by, cy],
+        [az, bz, cz],
+      ];
     }
-    ui.reportButton.textContent = 'Generating...';
-    ui.reportButton.disabled = true;
-    document.body.style.cursor = 'wait';
+    
+    /** Basis to cell params */
+    function basisToCell(B) {
+      const a = Math.hypot(B[0][0], B[1][0], B[2][0]);
+      const b = Math.hypot(B[0][1], B[1][1], B[2][1]);
+      const c = Math.hypot(B[0][2], B[1][2], B[2][2]);
+    
+      const dot_ab = B[0][0] * B[0][1] + B[1][0] * B[1][1] + B[2][0] * B[2][1];
+      const dot_ac = B[0][0] * B[0][2] + B[1][0] * B[1][2] + B[2][0] * B[2][2];
+      const dot_bc = B[0][1] * B[0][2] + B[1][1] * B[1][2] + B[2][1] * B[2][2];
+    
+      const alpha = Math.acos(clamp01(dot_bc / (b * c))) * DEG;
+      const beta = Math.acos(clamp01(dot_ac / (a * c))) * DEG;
+      const gamma = Math.acos(clamp01(dot_ab / (a * b))) * DEG;
+    
+      return { a, b, c, alpha, beta, gamma };
+    }
+    
+    /** Metric & G6 */
+    function basisToMetric(B) {
+      // G = B^T B (columns are basis vectors)
+      const v = (i, j) => B[0][i] * B[0][j] + B[1][i] * B[1][j] + B[2][i] * B[2][j];
+      const G = [
+        [v(0, 0), v(0, 1), v(0, 2)],
+        [v(1, 0), v(1, 1), v(1, 2)],
+        [v(2, 0), v(2, 1), v(2, 2)],
+      ];
+      // G6 (A, B, C, ξ, η, ζ) with doubled off-diagonals
+      const A = G[0][0], Bm = G[1][1], C = G[2][2];
+      const zeta = 2 * G[0][1]; // 2 a·b
+      const eta = 2 * G[0][2];  // 2 a·c
+      const xi = 2 * G[1][2];   // 2 b·c
+      return { G, A, B: Bm, C, xi, eta, zeta };
+    }
+    
+    /** Multiply 3x3 integer transform C on the right: columns transform as B' = B * C */
+    function rightMul(B, C) {
+      const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (let r = 0; r < 3; r++) {
+        for (let j = 0; j < 3; j++) {
+          out[r][j] = B[r][0] * C[0][j] + B[r][1] * C[1][j] + B[r][2] * C[2][j];
+        }
+      }
+      return out;
+    }
+    
+    /** Multiply integer transforms: M' = M * C */
+    function matMul3(M, C) {
+      const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          out[i][j] = M[i][0] * C[0][j] + M[i][1] * C[1][j] + M[i][2] * C[2][j];
+        }
+      }
+      return out;
+    }
+    
+    /** Identity 3x3 */
+    function I3() { return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
+    
+    /** Sign function for A5–A7: returns +1 or -1 (never 0) */
+    function signStrict(x) { return x >= 0 ? 1 : -1; }
+    
+    /***** ---------- Optional: centering -> primitive ---------- *****/
+    const primitiveTransformByCentering = {
+  P: [[1,0,0],[0,1,0],[0,0,1]],
 
-    try {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({
-            orientation: 'p',
-            unit: 'mm',
-            format: 'a4'
-        });
+  // base-centered
+  A: [[0.5, 0.5, 0], [0.5, -0.5, 0], [0, 0, 1]],
+  B: [[0.5, 0, 0.5], [0.5, 0, -0.5], [0, 1, 0]],
+  C: [[1, 0, 0], [0, 0.5, 0.5], [0, -0.5, 0.5]],
 
-        const margin = 15;
-        let yPos = 20;
-        const pdfWidth = doc.internal.pageSize.getWidth();
-        const lambda = parseFloat(ui.wavelength.value);
-        const tthError = parseFloat(ui.tthError.value);
+  // body- and face-centered
+  I: [[-0.5,  0.5,  0.5],
+      [ 0.5, -0.5,  0.5],
+      [ 0.5,  0.5, -0.5]],       // a'=(−a+b+c)/2, etc.  (det = 1/2)
+
+  F: [[0,   0.5, 0.5],
+      [0.5, 0,   0.5],
+      [0.5, 0.5, 0  ]],          // a'=(b+c)/2, etc.     (det = 1/2)
+
+  // rhombohedral from hex setting (obverse)
+  R: [[ 2/3, -1/3, -1/3],
+      [ 1/3,  1/3, -2/3],
+      [ 1/3,  1/3,  1/3]],       // (det = 1/3)
+};
+
+
+
+    /***** ---------- Niggli reduction (A1–A8) ---------- *****/
+    function niggliReduceFromCell(cell, opts = {}) {
+      const { a, b, c, alpha, beta, gamma, centering = 'P' } = cell;
+      const epsUser = opts.eps;
+      const maxIter = opts.maxIterations || 1000;
+    
+      // Start from a primitive basis (if needed)
+      let B = cellToBasis(a, b, c, alpha, beta, gamma);
+      
+      // --- MODIFICATION: Handle complex centering strings like 'Body-centered (I)' ---
+      let centeringKey = (centering || 'P').toUpperCase();
+      const match = centeringKey.match(/\(([A-Z])\)/); // Look for (I), (F), (C), etc.
+      if (match) {
+          centeringKey = match[1];
+      } else if (centeringKey.length > 1) {
+          // Fallback: take the first letter if it's not a complex string
+          centeringKey = centeringKey.charAt(0);
+      }
+      // --- END MODIFICATION ---
+
+      const Cp = primitiveTransformByCentering[centeringKey];
+      
+      if (!Cp) {
+        // Don't throw an error, just warn and proceed with P
+        console.warn(`Unknown centering type: ${centering}. Defaulting to 'P'.`);
+        B = cellToBasis(a, b, c, alpha, beta, gamma);
+      }
+      
+      if (Cp && centeringKey !== 'P') {
+        B = rightMul(B, Cp);
+      }
+    
+      // Global transform from input to Niggli
+      let T = (Cp && centeringKey !== 'P') ? Cp.map(row => row.slice()) : I3();
+    
+      // Tolerance: relative to typical squared length
+      let { A, B: BB, C, xi, eta, zeta } = basisToMetric(B);
+      const scale = Math.max(A, BB, C) || 1;
+      const eps = typeof epsUser === 'number' ? epsUser : 1e-8 * scale;
+    
+      function updateState() {
+        const s = basisToMetric(B);
+        A = s.A; BB = s.B; C = s.C; xi = s.xi; eta = s.eta; zeta = s.zeta;
+      }
+    
+      function angleSigns() {
+        let l = 0, m = 0, n = 0;
+        if (xi < -eps) l = -1; else if (xi > eps) l = 1;
+        if (eta < -eps) m = -1; else if (eta > eps) m = 1;
+        if (zeta < -eps) n = -1; else if (zeta > eps) n = 1;
+        return { l, m, n, lmn: l * m * n };
+      }
+    
+      // Main loop: apply A1..A8 until nothing changes
+      let iter;
+      for (iter = 0; iter < maxIter; iter++) {
+        let changed = false;
+    
+        // A1: Ensure A <= B
+        if ((A > BB + eps) || (Math.abs(A - BB) <= eps && Math.abs(xi) > Math.abs(eta) + eps)) {
+          const C1 = [[0, -1, 0], [-1, 0, 0], [0, 0, -1]];
+          B = rightMul(B, C1); T = matMul3(T, C1);
+          updateState();  
+          changed = true;
+        }
+    
+        // A2: Ensure B <= C
+        if (!changed && ((BB > C + eps) || (Math.abs(BB - C) <= eps && Math.abs(eta) > Math.abs(zeta) + eps))) {
+          const C2 = [[-1, 0, 0], [0, 0, -1], [0, -1, 0]];
+          B = rightMul(B, C2); T = matMul3(T, C2);
+          updateState();  
+          changed = true;
+        }
         
-        const tthMinVal = parseFloat(ui.tthMinSlider.value);
-        const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+        if (changed) {
+          continue; // Restart from A1
+        }
+    
+        // A3 & A4: Handle angle signs
+        const { l, m, n, lmn } = angleSigns();
+        
+        // A3: If all angles have the same sign, make them all positive
+        if (lmn === 1) {
+          const i = (l === -1) ? -1 : 1;
+          const j = (m === -1) ? -1 : 1;
+          const k = (n === -1) ? -1 : 1;
+          const C3 = [[i, 0, 0], [0, j, 0], [0, 0, k]];
+          B = rightMul(B, C3); T = matMul3(T, C3);
+          updateState();  
+          continue;
+        }
+    
+        // A4: If not all same sign (lmn = 0 or -1), make non-positive
+        if (lmn !== 1) {
+          let i = 1, j = 1, k = 1;
+          
+          if (l === 1) i = -1;
+          if (m === 1) j = -1;
+          if (n === 1) k = -1;
+          
+          const C4 = [[i, 0, 0], [0, j, 0], [0, 0, k]];
+          B = rightMul(B, C4); T = matMul3(T, C4);
+          updateState();
+        }
+    
+        // A5: Reduce |xi|
+        if ((Math.abs(xi) > BB + eps) ||
+            (Math.abs(BB - xi) <= eps && (2 * eta < zeta - eps)) ||
+            (Math.abs(BB + xi) <= eps && (zeta < -eps))) {
+          const C5 = [[1, 0, 0], [0, 1, -signStrict(xi)], [0, 0, 1]];
+          B = rightMul(B, C5); T = matMul3(T, C5);
+          updateState();
+          continue; // Restart from A1
+        }
+    
+        // A6: Reduce |eta|
+        if ((Math.abs(eta) > A + eps) ||
+            (Math.abs(A - eta) <= eps && (2 * xi < zeta - eps)) ||
+            (Math.abs(A + eta) <= eps && (zeta < -eps))) {
+          const C6 = [[1, 0, -signStrict(eta)], [0, 1, 0], [0, 0, 1]];
+          B = rightMul(B, C6); T = matMul3(T, C6);
+          updateState();
+          continue; // Restart from A1
+        }
+    
+        // A7: Reduce |zeta|
+        if ((Math.abs(zeta) > A + eps) ||
+            (Math.abs(A - zeta) <= eps && (2 * xi < eta - eps)) ||
+            (Math.abs(A + zeta) <= eps && (eta < -eps))) {
+          const C7 = [[1, -signStrict(zeta), 0], [0, 1, 0], [0, 0, 1]];
+          B = rightMul(B, C7); T = matMul3(T, C7);
+          updateState();
+          continue; // Restart from A1
+        }
+    
+        // A8: Final reduction step
+        if ((xi + eta + zeta + A + BB < -eps) ||
+            (Math.abs(xi + eta + zeta + A + BB) <= eps && (2 * (A + eta) + zeta > eps))) {
+          const C8 = [[1, 0, 1], [0, 1, 1], [0, 0, 1]];
+          B = rightMul(B, C8); T = matMul3(T, C8);
+          updateState();
+          continue; // Restart from A1
+        }
+    
+        // No rule fired => reduced
+        break;
+      }
+    
+      const reduced = basisToCell(B);
+      const finalMetric = basisToMetric(B);
+      
+      return {
+        cell: {
+          a: reduced.a,  
+          b: reduced.b,  
+          c: reduced.c,
+          alpha: reduced.alpha,  
+          beta: reduced.beta,  
+          gamma: reduced.gamma
+        },
+        transform: T,
+        basis: B,
+        metric: finalMetric.G,
+        g6: {
+          A: finalMetric.A,
+          B: finalMetric.B,
+          C: finalMetric.C,
+          xi: finalMetric.xi,
+          eta: finalMetric.eta,
+          zeta: finalMetric.zeta
+        },
+        iterations: iter,
+        converged: iter < maxIter
+      };
+    }
+    
+    
 
-        // --- fonts and sizes, see later, this is esthetics, osef
-        const FONT = {
-            TITLE: 'helvetica',
-            LABEL: 'helvetica',
-            DATA: 'courier'
+
+    /***** ---------- Convenience wrapper ---------- *****/
+    function reduceToNiggliCell(sol, opts) {
+      // Accepts your solution object (sol)
+      const a = sol.a, b = sol.b || sol.a, c = sol.c || sol.a; // Handle cubic/tetragonal
+      const alpha = sol.alpha ?? 90;
+      const beta = sol.beta ?? 90;
+      const gamma = sol.gamma ?? (sol.system === 'hexagonal' ? 120 : 90);
+      
+      // Use the detected centering string from the analysis step
+      const centering = (sol.analysis?.centering) || 'P';
+      
+      return niggliReduceFromCell({ a, b, c, alpha, beta, gamma, centering }, opts);
+    }
+
+
+    
+// --- [UPDATED FUNCTION V9] Centered Cell Generator (Removed Volume Check) ---
+
+/**
+ * Generates the conventional centered cell representations (I, F, A, B, C, R)
+ * corresponding to a primitive Niggli cell, filtered by the original system's
+ * possible Bravais types and angle constraints (60-150 deg).
+ * Uses renamed helper functions to avoid scope conflicts. Removes redundant volume check.
+ *
+ * @param {object} niggliCell - The Niggli cell parameters {a, b, c, alpha, beta, gamma}.
+ * @param {string} [originalSystem=null] - Optional: The original crystal system ('cubic', 'tetragonal', etc.)
+ * @returns {object} { primitiveCells: Array<object>, centeredCells: object }
+ */
+function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) { // N parameter ignored
+    const results = {
+        primitiveCells: [],
+        centeredCells: {}
+    };
+
+    if (!niggliCell || typeof niggliCell !== 'object' || !niggliCell.a) {
+        console.error("Invalid Niggli cell provided.");
+        return results;
+    }
+
+    const minAngle = 60.0, maxAngle = 150.0;
+
+    // Use renamed helper functions
+    const niggliSystemGuess = getSymmetryForEquivCells(niggliCell.a, niggliCell.b, niggliCell.c, niggliCell.alpha, niggliCell.beta, niggliCell.gamma);
+    const niggliVolume = getVolumeForEquivCells({ ...niggliCell, system: niggliSystemGuess });
+    results.primitiveCells.push({ ...niggliCell, description: "Niggli Cell", centering: 'P', volume: niggliVolume });
+
+    // --- Generate Conventional Centered Cells ONLY ---
+    if (originalSystem) {
+        const niggliBasis = cellToBasis(
+            niggliCell.a, niggliCell.b, niggliCell.c,
+            niggliCell.alpha, niggliCell.beta, niggliCell.gamma
+        );
+
+        const primitiveToCenteredTransforms = {
+            'I': [[0,1,1],[1,0,1],[1,1,0]],
+            'F': [[-1,1,1],[1,-1,1],[1,1,-1]],
+            'A': [[1,1,0],[-1,1,0],[0,0,1]],
+            'B': [[1,0,1],[0,1,0],[-1,0,1]],
+            'C': [[1,0,0],[0,1,-1],[0,1,1]],
+            'R': [[1,0,1],[-1,1,1],[0,-1,1]]
         };
-        const SIZE = {
-            TITLE: 18,
-            H1: 14,
-            H2: 12,
-            BODY: 9,
-            TABLE_HEADER: 8,
-            TABLE_BODY: 8,
-            SMALL: 7
+
+        const validBravaisCenterings = {
+            'cubic': ['P', 'I', 'F'], 'tetragonal': ['P', 'I'], 'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'],
+            'hexagonal': ['P', 'R'], 'monoclinic': ['P', 'A', 'B', 'C', 'I'], 'triclinic': ['P']
         };
+        const allowedCenterings = validBravaisCenterings[originalSystem] || ['P'];
 
-        // --- Page Header & Chart ---
-        const now = new Date();
-        const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const versionInfo = document.getElementById('app-footer')?.textContent || 'Combs, unknown version';
-        const programURL = window.location.href;
-        
+        for (const [centeringType, transform] of Object.entries(primitiveToCenteredTransforms)) {
+            if (allowedCenterings.includes(centeringType) && centeringType !== 'P') {
+                try {
+                    const centeredBasis = rightMul(niggliBasis, transform);
+                    const centeredCellParams = basisToCell(centeredBasis);
 
-        doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Combs - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
-        yPos += 10;
-        
-        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
-        doc.text(`Generated:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
-        yPos += 5;
+                    // Check validity AND angle limits
+                    if (Object.values(centeredCellParams).every(v => isFinite(v) && v > -1e-6) &&
+                        [centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma].every(a => a >= minAngle && a <= maxAngle))
+                    {
+                        // Use renamed helper function
+                        const systemGuess = getSymmetryForEquivCells(centeredCellParams.a, centeredCellParams.b, centeredCellParams.c, centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma);
 
-        // --- Add URL and Version lines
-        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
-        doc.text(`URL:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text(programURL, margin + 25, yPos);
-        yPos += 5;
+                        const systemAllowed = (centeringType === 'I' && ['cubic', 'tetragonal', 'orthorhombic', 'monoclinic'].includes(systemGuess)) ||
+                                              (centeringType === 'F' && ['cubic', 'orthorhombic'].includes(systemGuess)) ||
+                                              (['A','B','C'].includes(centeringType) && ['orthorhombic', 'monoclinic'].includes(systemGuess)) ||
+                                              (centeringType === 'R' && ['hexagonal', 'trigonal'].includes(systemGuess));
 
-        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
-        doc.text(`Version:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text(versionInfo, margin + 25, yPos);
-        yPos += 5;
-        
-        doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
-        doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
-        yPos += 10;
-        
-        const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
-        const imgData = canvas.toDataURL('image/png');
-        const imgProps = doc.getImageProperties(imgData);
-        const availableWidth = pdfWidth - 2 * margin;
-        let imgHeight = (imgProps.height * availableWidth) / imgProps.width;
-        doc.addImage(imgData, 'PNG', margin, yPos, availableWidth, imgHeight);
+                        if (systemAllowed) {
+                            // Use renamed helper function
+                            const centeredVolume = getVolumeForEquivCells({ ...centeredCellParams, system: systemGuess });
+                            // const expectedVolumeFactor = {'I': 2, 'F': 4, 'A': 2, 'B': 2, 'C': 2, 'R': 3}[centeringType] || 1;
 
-        // --- Parameters & Summary Table Page ---
-        doc.addPage();
-        yPos = 20;
-
-        // --- Indexing Parameters Section ---
-        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
-        yPos += 8;
-
-        // --- modif le 21 oct avec Ka2 strip
-        const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
-        const paramData = [
-            { label: 'Radiation:', value: presetText },
-            { label: 'Max Volume (A^3):', value: ui.maxVolume.value },
-            { label: 'Ka1 Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
-            { label: 'Tolerance (2theta):', value: ui.tthError.value },
-            { label: 'Ka2 Stripped:', value: ui.stripKa2Checkbox.checked ? 'True' : 'False' },
-            { label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
-            { label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
-            { label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
-            { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
-            { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
-        ];
-        // ---
-
-        const col1X = margin;
-        const col2X = margin + 85;
-        const labelWidth = 35;
-
-        paramData.forEach((item, index) => {
-            const isCol1 = index % 2 === 0;
-            const x = isCol1 ? col1X : col2X;
-            if (isCol1) yPos += 5;
-            
-            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(item.label, x, yPos);
-            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
-        });
-        yPos += 7;
-        
-        doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
-        const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
-        const systemsText = systems.join(', ');
-        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
-        yPos += 8;
-
-        doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
-
-        // --- Indexing Solutions Summary Section ---
-        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
-        doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
-        doc.text('Sys', margin, yPos);
-        doc.text('M(20)', margin + 15, yPos);
-        doc.text('Volume(A^3)', margin + 35, yPos);
-        doc.text('Parameters', margin + 65, yPos);
-        yPos += 5;
-
-        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-        displayedSolutions.slice(0, 30).forEach(sol => {
-            if (yPos > 280) { doc.addPage(); yPos = 20; }
-            let paramStr = '';
-            const p = sol.errors || {};
-            switch (sol.system) {
-                 case 'cubic': paramStr = `a=${formatWithError(sol.a, p.s_a)}`; break;
-                 case 'tetragonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
-                 case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
-                 case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
-                 case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
+                            // --- REMOVED VOLUME CHECK ---
+                            // if (Math.abs(centeredVolume * expectedVolumeFactor - niggliVolume) < niggliVolume * 0.01) {
+                                results.centeredCells[centeringType] = {
+                                    ...centeredCellParams, system: systemGuess, centering: centeringType,
+                                    volume: centeredVolume, description: `Conventional ${centeringType}-centered`
+                                };
+                            // } else { console.warn(`Generated ${centeringType}-centered cell volume (${centeredVolume.toFixed(4)}) inconsistent with primitive volume (${niggliVolume.toFixed(4)}), skipping.`); }
+                        } else { /* console.warn(`Generated ${centeringType}-centered cell for ${originalSystem} has incompatible geometry (${systemGuess}), skipping.`); */ }
+                    } else { /* console.warn(`Generated ${centeringType}-centered cell had invalid parameters or angles.`); */ }
+                } catch (error) { console.error(`Error transforming to ${centeringType}-centered cell:`, error); }
             }
-            doc.text(sol.system.substring(0,4), margin, yPos);
-            doc.text(sol.m20.toFixed(2), margin + 15, yPos);
-            doc.text(sol.volume.toFixed(2), margin + 35, yPos);
-            doc.text(paramStr, margin + 65, yPos);
+        }
+    } // End centered cell generation
+
+    return results;
+}
+
+
+
+
+
+    const generatePDFReport = async () => {
+        if (displayedSolutions.length === 0) {
+            showStatus("No solutions found to generate a report.", 'info');
+            return;
+        }
+        ui.reportButton.textContent = 'Generating...';
+        ui.reportButton.disabled = true;
+        document.body.style.cursor = 'wait';
+    
+        try {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'p',
+                unit: 'mm',
+                format: 'a4'
+            });
+    
+            const margin = 15;
+            let yPos = 20;
+            const pdfWidth = doc.internal.pageSize.getWidth();
+            const lambda = parseFloat(ui.wavelength.value);
+            const tthError = parseFloat(ui.tthError.value);
+            
+            const tthMinVal = parseFloat(ui.tthMinSlider.value);
+            const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+            
+            // --- fonts and sizes, see later, this is esthetics, osef
+            const FONT = {
+                TITLE: 'helvetica',
+                LABEL: 'helvetica',
+                DATA: 'courier'
+            };
+            const SIZE = {
+                TITLE: 18,
+                H1: 14,
+                H2: 12,
+                BODY: 9,
+                TABLE_HEADER: 8,
+                TABLE_BODY: 8,
+                SMALL: 7
+            };
+    
+            // --- Page Header & Chart ---
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Combs, unknown version';
+            const programURL = window.location.href;
+            
+    
+            doc.setFont(FONT.TITLE, 'bold').setFontSize(SIZE.TITLE).text('Combs - Powder Indexing Report', pdfWidth / 2, yPos, { align: 'center' });
+            yPos += 10;
+            
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+            doc.text(`Generated:`, margin, yPos);
+            doc.setFont(FONT.DATA, 'normal').text(timestamp, margin + 25, yPos);
             yPos += 5;
-        });
-
-        // --- Detailed Solution Pages ---
-        displayedSolutions.forEach((sol, solIndex) => {
-            doc.addPage(); yPos = 20;
-            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H2);
-            doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos); yPos += 7;
+    
+            // --- Add URL and Version lines
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+            doc.text(`URL:`, margin, yPos);
+            doc.setFont(FONT.DATA, 'normal').text(programURL, margin + 25, yPos);
+            yPos += 5;
+    
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY);
+            doc.text(`Version:`, margin, yPos);
+            doc.setFont(FONT.DATA, 'normal').text(versionInfo, margin + 25, yPos);
+            yPos += 5;
             
-            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
-            const p = sol.errors || {};
-            const paramLines = [];
-            switch (sol.system) {
-                 case 'cubic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`); break;
-                 case 'tetragonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
-                 case 'hexagonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
-                 case 'orthorhombic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
-                 case 'monoclinic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`); break;
-            }
-            paramLines.forEach(line => { doc.text(line, margin, yPos); yPos += 4; });
-
-            if (sol.zero_correction !== undefined) { doc.text(`Zero Error (2theta) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); yPos += 4; }
-            doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); yPos += 6;
-
-            if (sol.analysis) {
-                 doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(`Lattice Centering:`, margin, yPos);
-                 doc.setFont(FONT.DATA, 'normal').text(sol.analysis.centering, margin + 42, yPos); yPos += 5;
-                 
-                 doc.setFont(FONT.LABEL, 'normal').text('Possible Extinctions:', margin, yPos);
-                 let extinctionList = sol.analysis.detectedExtinctions || [];
-                 if (extinctionList.length > 0) {
-                     doc.setFont(FONT.DATA, 'normal').text(extinctionList.join(', '), margin + 42, yPos);
-                 } else {
-                     doc.setFont(FONT.DATA, 'italic').text("None clearly detected", margin + 42, yPos);
-                 }
-                 yPos += 7;
-                 
-                 if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
-                     if (yPos > 260) { doc.addPage(); yPos = 20; }
-                     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text('Possible Space Groups:', margin, yPos); yPos += 5;
+            doc.setFont(FONT.LABEL, 'normal').text(`Data File:`, margin, yPos);
+            doc.setFont(FONT.DATA, 'normal').text(ui.fileName.textContent, margin + 25, yPos);
+            yPos += 10;
+            
+            const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
+            const imgData = canvas.toDataURL('image/png');
+            const imgProps = doc.getImageProperties(imgData);
+            const availableWidth = pdfWidth - 2 * margin;
+            let imgHeight = (imgProps.height * availableWidth) / imgProps.width;
+            doc.addImage(imgData, 'PNG', margin, yPos, availableWidth, imgHeight);
+    
+            // --- Parameters & Summary Table Page ---
+            doc.addPage();
+            yPos = 20;
+    
+            // --- Indexing Parameters Section ---
+            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Parameters', margin, yPos);
+            yPos += 8;
+    
+            // --- modif le 21 oct avec Ka2 strip
+            const presetText = ui.wavelengthPreset.options[ui.wavelengthPreset.selectedIndex].text;
+            const paramData = [
+                { label: 'Radiation:', value: presetText },
+                { label: 'Max Volume (A^3):', value: ui.maxVolume.value },
+                { label: 'Ka1 Wavelength (A):', value: parseFloat(ui.wavelength.value).toFixed(5) },
+                { label: 'Tolerance (2theta):', value: ui.tthError.value },
+                { label: 'Ka2 Stripped:', value: ui.stripKa2Checkbox.checked ? 'True' : 'False' },
+                { label: 'Impurity Peaks:', value: ui.impurityPeaksInput.value },
+                { label: 'Min Peak (%):', value: ui.peakThresholdValue.textContent },
+                { label: 'Refine Zero:', value: ui.refineZeroCheckbox.checked ? 'True' : 'False' },
+                { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
+                { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
+            ];
+            // ---
+    
+            const col1X = margin;
+            const col2X = margin + 85;
+            const labelWidth = 35;
+    
+            paramData.forEach((item, index) => {
+                const isCol1 = index % 2 === 0;
+                const x = isCol1 ? col1X : col2X;
+                if (isCol1) yPos += 5;
+                
+                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(item.label, x, yPos);
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(String(item.value), x + labelWidth, yPos);
+            });
+            yPos += 7;
+            
+            doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Systems Searched:', margin, yPos);
+            const systems = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value.charAt(0).toUpperCase() + cb.value.slice(1));
+            const systemsText = systems.join(', ');
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(systemsText, margin + labelWidth, yPos);
+            yPos += 8;
+    
+            doc.setDrawColor(200); doc.line(margin, yPos, pdfWidth - margin, yPos); yPos += 8;
+    
+            // --- Indexing Solutions Summary Section ---
+            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
+            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
+            doc.text('Sys', margin, yPos);
+            doc.text('M(20)', margin + 15, yPos);
+            doc.text('Volume(A^3)', margin + 35, yPos);
+            doc.text('Parameters', margin + 65, yPos);
+            yPos += 5;
+    
+            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+            displayedSolutions.slice(0, 30).forEach(sol => {
+                if (yPos > 280) { doc.addPage(); yPos = 20; }
+                let paramStr = '';
+                const p = sol.errors || {};
+                switch (sol.system) {
+                     case 'cubic': paramStr = `a=${formatWithError(sol.a, p.s_a)}`; break;
+                     case 'tetragonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+                     case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+                     case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
+                     case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
+                }
+                doc.text(sol.system.substring(0,4), margin, yPos);
+                doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+                doc.text(sol.volume.toFixed(2), margin + 35, yPos);
+                doc.text(paramStr, margin + 65, yPos);
+                yPos += 5;
+            });
+    
+            // --- Detailed Solution Pages ---
+            displayedSolutions.forEach((sol, solIndex) => {
+                doc.addPage(); yPos = 20;
+                doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H2);
+                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos); yPos += 7;
+                
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+                const p = sol.errors || {};
+                const paramLines = [];
+                switch (sol.system) {
+                     case 'cubic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`); break;
+                     case 'tetragonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
+                     case 'hexagonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
+                     case 'orthorhombic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
+                     case 'monoclinic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`); break;
+                }
+                paramLines.forEach(line => { doc.text(line, margin, yPos); yPos += 4; });
+    
+                if (sol.zero_correction !== undefined) { doc.text(`Zero Error (2theta) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); yPos += 4; }
+                doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); yPos += 6;
+    
+                if (sol.analysis) {
+                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(`Lattice Centering:`, margin, yPos);
+                     doc.setFont(FONT.DATA, 'normal').text(sol.analysis.centering, margin + 42, yPos); yPos += 5;
                      
-                     // ... Space group listing logic, the same ...
-                     const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
-                     const groupsByViolation = {};
-                     sgList.forEach(sg => { 
-                         const v = sg.violations || 0; 
-                         if (!groupsByViolation[v]) groupsByViolation[v] = []; 
-                         groupsByViolation[v].push(sg); 
-                     });
+                     doc.setFont(FONT.LABEL, 'normal').text('Possible Extinctions:', margin, yPos);
+                     let extinctionList = sol.analysis.detectedExtinctions || [];
+                     if (extinctionList.length > 0) {
+                         doc.setFont(FONT.DATA, 'normal').text(extinctionList.join(', '), margin + 42, yPos);
+                     } else {
+                         doc.setFont(FONT.DATA, 'italic').text("None clearly detected", margin + 42, yPos);
+                     }
+                     yPos += 7;
+                     
 
-                     const maxViolationsToShow = 2;
-                     for (let v = 0; v <= maxViolationsToShow; v++) {
-                         if (groupsByViolation[v] && groupsByViolation[v].length > 0) {
-                             if (yPos > 270) { doc.addPage(); yPos = 20; }
-                             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos); yPos += 5;
-                             
-                             const groupsByNumber = new Map();
-                             groupsByViolation[v].forEach(sg => {
-                                 if (!groupsByNumber.has(sg.number)) groupsByNumber.set(sg.number, []);
-                                 groupsByNumber.get(sg.number).push(sg.symbol);
-                             });
-                             
-                            const sortedNumbers = Array.from(groupsByNumber.keys()).sort((a, b) => b - a);
-                             doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-                             const maxLineLength = 85; 
-                             
-                             for (const number of sortedNumbers) {
-                                 let line = `${number}: ${groupsByNumber.get(number).join(', ')}`;
-                                 const splitLines = doc.splitTextToSize(line, maxLineLength);
-                                 splitLines.forEach(splitLine => {
-                                     if (yPos > 275) { doc.addPage(); yPos = 20; }
-                                     doc.text(splitLine, margin + 5, yPos); 
-                                     yPos += 4;
-                                 });
-                             }
+   //--------------
+                     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
+                     doc.text('Niggli Reduced Cell:', margin, yPos);
+                     yPos += 5;
 
-                             if (v > 0) {
-                                 const groupsToDetail = groupsByViolation[v].slice(0, 8); 
-                                 groupsToDetail.forEach(sg => {
-                                     if (yPos > 275) { doc.addPage(); yPos = 20; }
-                                     if (sg.violatedReflections && sg.violatedReflections.length > 0) {
-                                         doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.SMALL).text(`  ${sg.symbol}:`, margin + 5, yPos); yPos += 3.5;
-                                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                                         sg.violatedReflections.slice(0, 4).forEach(viol => { if (yPos > 280) { doc.addPage(); yPos = 20; } doc.text(`    ${viol}`, margin + 5, yPos); yPos += 3; });
-                                         yPos += 1;
+                     try {
+                         const niggliResult = reduceToNiggliCell(sol);
+                        const nCell = niggliResult.cell;
+
+                         const niggliLines = [
+                            `a = ${nCell.a.toFixed(4)} A`,
+                             `b = ${nCell.b.toFixed(4)} A`,
+                             `c = ${nCell.c.toFixed(4)} A`,
+                             `alpha = ${nCell.alpha.toFixed(3)} deg`,
+                             `beta  = ${nCell.beta.toFixed(3)} deg`,
+                             `gamma = ${nCell.gamma.toFixed(3)} deg`                       
+                            ];
+
+                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+
+                         const col1X_niggli = margin + 5;
+                         const col2X_niggli = margin + 65;
+
+                         doc.text(niggliLines[0], col1X_niggli, yPos);
+                         doc.text(niggliLines[3], col2X_niggli, yPos);
+                         yPos += 4;
+
+                         doc.text(niggliLines[1], col1X_niggli, yPos);
+                         doc.text(niggliLines[4], col2X_niggli, yPos);
+                         yPos += 4;
+
+                         doc.text(niggliLines[2], col1X_niggli, yPos);
+                         doc.text(niggliLines[5], col2X_niggli, yPos);
+                         yPos += 5;
+
+                     } catch (niggliError) {
+                         console.error("Niggli reduction failed:", niggliError);
+                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
+                         doc.text('Reduction failed. See console for error.', margin + 5, yPos);
+                         yPos += 5;
+                     }
+                     yPos += 3; // Padding after Niggli cell
+
+  
+
+                     if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+                         if (yPos > 260) { doc.addPage(); yPos = 20; }
+                         doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text('Possible Space Groups:', margin, yPos); yPos += 5;
+                         
+                         const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
+                         const groupsByViolation = {};
+                         sgList.forEach(sg => { 
+                             const v = sg.violations || 0; 
+                             if (!groupsByViolation[v]) groupsByViolation[v] = []; 
+                             groupsByViolation[v].push(sg); 
+                         });
+    
+                         const maxViolationsToShow = 2;
+                         for (let v = 0; v <= maxViolationsToShow; v++) {
+                             if (groupsByViolation[v] && groupsByViolation[v].length > 0) {
+                                 if (yPos > 270) { doc.addPage(); yPos = 20; }
+                                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos); yPos += 5;
+                                 
+                                 // --- [NEW LOGIC] ---
+                                 // The list groupsByViolation[v] is ALREADY sorted by our new rules.
+                                 // We just need to iterate it and group adjacent symbols by number.
+                                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+                                 const maxLineLength = 85; 
+                                 let currentNumber = null;
+                                 let currentLine = "";
+
+                                 // Helper to print the current line
+                                 const printCurrentLine = () => {
+                                     if (currentLine) {
+                                         const splitLines = doc.splitTextToSize(currentLine, maxLineLength);
+                                         splitLines.forEach(splitLine => {
+                                             if (yPos > 275) { doc.addPage(); yPos = 20; }
+                                             doc.text(splitLine, margin + 5, yPos); 
+                                             yPos += 4;
+                                         });
+                                     }
+                                 };
+
+                                 // Iterate through the already-sorted list of groups
+                                 groupsByViolation[v].forEach((sg) => {
+                                     if (sg.number !== currentNumber) {
+                                         printCurrentLine(); // Print the previous line
+                                         // Start a new line
+                                         currentNumber = sg.number;
+                                         currentLine = `${sg.number}: ${sg.symbol}`;
+                                     } else {
+                                         // Add to the current line
+                                         currentLine += `, ${sg.symbol}`;
                                      }
                                  });
+                                 
+                                 printCurrentLine(); // Print the very last line
+    
+                                 if (v > 0) {
+                                     const groupsToDetail = groupsByViolation[v].slice(0, 8); 
+                                     groupsToDetail.forEach(sg => {
+                                         if (yPos > 275) { doc.addPage(); yPos = 20; }
+                                         if (sg.violatedReflections && sg.violatedReflections.length > 0) {
+                                             doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.SMALL).text(`  ${sg.symbol}:`, margin + 5, yPos); yPos += 3.5;
+                                             doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                                             sg.violatedReflections.slice(0, 4).forEach(viol => { if (yPos > 280) { doc.addPage(); yPos = 20; } doc.text(`    ${viol}`, margin + 5, yPos); yPos += 3; });
+                                             yPos += 1;
+                                         }
+                                     });
+                                 }
+                                 yPos += 3;
                              }
-                             yPos += 3;
                          }
                      }
-                 }
-                 
-                 if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
-                     if (yPos > 268) { doc.addPage(); yPos = 20; }
-                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Centering test violations:', margin, yPos); yPos += 5;
-                     const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
-                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
+
+                     
+//
+
+                     if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
+                         if (yPos > 268) { doc.addPage(); yPos = 20; }
+                         doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Centering test violations:', margin, yPos); yPos += 5;
+                         const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
+                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
+                         yPos += 5;
+                     }
+                } 
+                yPos += 4;
+                if (yPos > 255) { doc.addPage(); yPos = 20; }
+    
+                /* --- REFLECTION TABLE ... */
+    
+                doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
+                const tableHeader = ' h k l   | 2th_meas 2th_corr 2th_calc | d_corr     d_calc    | diff(2th)';
+                doc.text(tableHeader, margin, yPos); yPos += 4;
+                
+                const hklList = generateHKL_for_analysis(sol, lambda, tthMaxVal);
+                
+                if (hklList.length === 0) {
+                     doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text('Could not generate theoretical reflections for this cell.', margin, yPos);
                      yPos += 5;
-                 }
-            } 
-            yPos += 4;
-            if (yPos > 255) { doc.addPage(); yPos = 20; }
-
-            /* --- REFLECTION TABLE, à vérifier le generate_HKL_for indexing and for analysis.. 
-            on pourrait faire un seul jeu de HKL et passer à chaque fois... on gagne en vitesse, mais la mémoire ? pour des grandes mailles, assymétriques on peut avoir 3*N integers
-            */
-
-            doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
-            const tableHeader = ' h k l   | 2th_meas 2th_corr 2th_calc | d_corr     d_calc    | diff(2th)';
-            doc.text(tableHeader, margin, yPos); yPos += 4;
-            
-            const hklList = generateHKL_for_analysis(sol, lambda, tthMaxVal);
-            
-            if (hklList.length === 0) {
-                 doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text('Could not generate theoretical reflections for this cell.', margin, yPos);
-                 yPos += 5;
-                 return; 
-            }
-
-            const ambiguousHkls = sol.analysis.ambiguousHkls || new Set();
-            const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
-            const reportLines = []; 
-            const assignedHkls = new Set();
-
-            corrected_tth_obs.forEach((corr_peak) => {
-                let bestMatchHkl = null; let minDiff = Infinity;
-                hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
-                
-                if (bestMatchHkl && minDiff < tthError * 2 && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
-                    reportLines.push({ h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l, tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr, tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d });
-                    assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
+                     return; 
                 }
-            });
-
-            hklList.forEach(hkl => {
-                if (!assignedHkls.has(`${hkl.h},${hkl.k},${hkl.l}`) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
-                    reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
-                }
-            });
-            
-            reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
-            
-            doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-            reportLines.forEach(line => {
-                if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+    
+                const ambiguousHkls = sol.analysis.ambiguousHkls || new Set();
+                const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+                const reportLines = []; 
+                const assignedHkls = new Set();
+    
+                corrected_tth_obs.forEach((corr_peak) => {
+                    let bestMatchHkl = null; let minDiff = Infinity;
+                    hklList.forEach(hkl => { const diff = Math.abs(hkl.tth - corr_peak.tth_corr); if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; } });
+                    
+                    if (bestMatchHkl && minDiff < tthError * 2 && corr_peak.tth_corr >= tthMinVal && corr_peak.tth_corr <= tthMaxVal) {
+                        reportLines.push({ h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l, tth_meas: corr_peak.tth, tth_corr: corr_peak.tth_corr, tth_calc: bestMatchHkl.tth, d_calc: bestMatchHkl.d });
+                        assignedHkls.add(`${bestMatchHkl.h},${bestMatchHkl.k},${bestMatchHkl.l}`);
+                    }
+                });
+    
+                hklList.forEach(hkl => {
+                    if (!assignedHkls.has(`${hkl.h},${hkl.k},${hkl.l}`) && hkl.tth >= tthMinVal && hkl.tth <= tthMaxVal) {
+                        reportLines.push({ h: hkl.h, k: hkl.k, l: hkl.l, tth_meas: null, tth_corr: null, tth_calc: hkl.tth, d_calc: hkl.d });
+                    }
+                });
                 
-                const hkl_key = `${line.h},${line.k},${line.l}`;
-                if (ambiguousHkls.has(hkl_key)) {
-                    doc.setFont(FONT.DATA, 'italic');
-                }
-
-                const d_corr = line.tth_corr ? lambda / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
-                const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '   -   '; 
-                const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '   -   '; 
-                const d_c_str = d_corr ? d_corr.toFixed(5) : '    -    '; 
-                const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '   -   ';
+                reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
                 
-                const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}`.padEnd(8);
-                const pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} | ${d_c_str.padStart(9)} ${line.d_calc.toFixed(5).padStart(9)} | ${diff_2t.padStart(8)}`;
-                doc.text(pdfLine, margin, yPos);
-                
-                doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
-                yPos += 3.5;
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+                reportLines.forEach(line => {
+                    if (yPos > 285) { doc.addPage(); yPos = 20; doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER); doc.text(tableHeader, margin, yPos); yPos += 4; doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); }
+                    
+                    const hkl_key = `${line.h},${line.k},${line.l}`;
+                    if (ambiguousHkls.has(hkl_key)) {
+                        doc.setFont(FONT.DATA, 'italic');
+                    }
+    
+                    const d_corr = line.tth_corr ? lambda / (2 * Math.sin(line.tth_corr * Math.PI / 360)) : null;
+                    const tth_m = line.tth_meas ? line.tth_meas.toFixed(3) : '   -   '; 
+                    const tth_c = line.tth_corr ? line.tth_corr.toFixed(3) : '   -   '; 
+                    const d_c_str = d_corr ? d_corr.toFixed(5) : '    -    '; 
+                    const diff_2t = line.tth_corr ? (line.tth_corr - line.tth_calc).toFixed(3) : '   -   ';
+                    
+                    const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}`.padEnd(8);
+                    const pdfLine = `${hkl_str}| ${tth_m.padStart(7)} ${tth_c.padStart(7)} ${line.tth_calc.toFixed(3).padStart(7)} | ${d_c_str.padStart(9)} ${line.d_calc.toFixed(5).padStart(9)} | ${diff_2t.padStart(8)}`;
+                    doc.text(pdfLine, margin, yPos);
+                    
+                    doc.setFont(FONT.DATA, 'normal'); // Reset font to normal for the next line
+                    yPos += 3.5;
+                });
             });
-        });
-
-        const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
-        doc.save(filename);
-        showStatus('PDF report generated and saved.', 'success');
-
-    } catch (error) {
-        console.error("Failed to generate PDF:", error);
-        showStatus("An error occurred during PDF generation.", 'error');
-    } finally {
-        ui.reportButton.textContent = 'Generate PDF Report';
-        ui.reportButton.disabled = (solutions.length === 0);
-        document.body.style.cursor = 'default';
-    }
-};
+    
+            const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
+            doc.save(filename);
+            showStatus('PDF report generated and saved.', 'success');
+    
+        } catch (error) {
+            console.error("Failed to generate PDF:", error);
+            showStatus("An error occurred during PDF generation.", 'error');
+        } finally {
+            ui.reportButton.textContent = 'Generate PDF Report';
+            ui.reportButton.disabled = (solutions.length === 0);
+            document.body.style.cursor = 'default';
+        }
+    };
+    
 
 
 
@@ -2996,6 +3552,30 @@ const N_FOR_M20 = Math.min(20, peaks.length);
     const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
     const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
     
+    
+    const binarySearchClosestTth = (sortedArr, targetTth) => {
+        let low = 0, high = sortedArr.length - 1;
+        if (high < 0) return -1;
+        
+        while (low <= high) {
+            let mid = Math.floor((low + high) / 2);
+            if (sortedArr[mid].tth === targetTth) return mid;
+            if (sortedArr[mid].tth < targetTth) low = mid + 1;
+            else high = mid - 1;
+        }
+        
+        // At this point, low > high. The closest is either low or high.
+        if (low >= sortedArr.length) return high;
+        if (high < 0) return low;
+        
+        if (Math.abs(sortedArr[low].tth - targetTth) < Math.abs(sortedArr[high].tth - targetTth)) {
+            return low;
+        } else {
+            return high;
+        }
+    };
+    
+
 
 // Enforces crystallographic conventions to avoid listing
 // redundant equivalent reflections (e.g., (100) vs (010) in cubic).
@@ -3066,28 +3646,51 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
      return reflections.sort((a, b) => a.tth - b.tth);
  };
 
+
     const findIndexedPeaksForSolution = (solution, tthError) => {
         const maxTth = Math.max(...peaks.map(p => p.tth));
+        
+        // 1. Generate and sort theoretical HKLs *once*. This is O(M log M).
         const theoreticalHKLs = generateHKL_for_indexing(maxTth, { ...solution, lambda: wavelength }, solution.system);
         if (!theoreticalHKLs || theoreticalHKLs.length === 0) return [];
-        const indexedPeaks = []; const usedTheoreticalPeaks = new Set();
+        
+        // theoreticalHKLs is already sorted by tth from the generation function.
+
+        const indexedPeaks = []; 
+        const usedTheoreticalPeaks = new Set();
+        
+        // 2. For each observed peak, find the closest theoretical peak. This is O(N log M).
         for (const obsPeak of peaks) {
-            let bestMatch = null; let minDiff = Infinity;
-            for (let i = 0; i < theoreticalHKLs.length; i++) {
-                if (usedTheoreticalPeaks.has(i)) continue;
-                const diff = Math.abs(obsPeak.tth - theoreticalHKLs[i].tth);
-                if (diff < minDiff) { minDiff = diff; bestMatch = { ...theoreticalHKLs[i], originalIndex: i }; }
+            const closestIndex = binarySearchClosestTth(theoreticalHKLs, obsPeak.tth);
+            if (closestIndex === -1) continue;
+
+            // Check neighbors in case binary search landed between two close peaks
+            let bestMatch = null;
+            let minDiff = Infinity;
+
+            for (let i = Math.max(0, closestIndex - 2); i <= Math.min(theoreticalHKLs.length - 1, closestIndex + 2); i++) {
+                 const diff = Math.abs(obsPeak.tth - theoreticalHKLs[i].tth);
+                 if (diff < minDiff) {
+                     minDiff = diff;
+                     bestMatch = { ...theoreticalHKLs[i], originalIndex: i };
+                 }
             }
-            if (bestMatch && minDiff < tthError) { indexedPeaks.push({ h: bestMatch.h, k: bestMatch.k, l: bestMatch.l }); usedTheoreticalPeaks.add(bestMatch.originalIndex); }
+
+            if (bestMatch && minDiff < tthError && !usedTheoreticalPeaks.has(bestMatch.originalIndex)) {
+                indexedPeaks.push({ h: bestMatch.h, k: bestMatch.k, l: bestMatch.l }); 
+                usedTheoreticalPeaks.add(bestMatch.originalIndex); 
+            }
         }
         return indexedPeaks;
     };
+    
 
     // --- CORE REFINEMENT AND ANALYSIS FUNCTIONS ---
 
     const generateHKL_for_worker = (cell) => {
     const { system, a, b, c, beta } = cell;
     const reflections = [];
+    const MAX_REFLECTIONS_LIMIT = 50000;
     const q_max_limit = q_max * 1.05; // Use the global q_max from the worker's scope
     const h_max = Math.ceil((a || 0) / d_min);
     const k_max = Math.ceil((b || a || 0) / d_min);
@@ -3096,6 +3699,15 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     for (let h = -h_max; h <= h_max; h++) {
         for (let k = 0; k <= k_max; k++) { // k from 0
             for (let l = -l_max; l <= l_max; l++) {
+               
+               if (reflections.length > MAX_REFLECTIONS_LIMIT) {
+                         console.warn(`[Worker] HKL generation limit (${MAX_REFLECTIONS_LIMIT}) reached for cell. Results may be incomplete.`);
+                         h = h_max + 1; // Break outer loops
+                         k = k_max + 1;
+                         l = l_max + 1;
+                         continue;
+                    }
+               
                 if (h === 0 && k === 0 && l === 0) continue;
 
                 // Add  filter for monoclinic
@@ -3144,6 +3756,9 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             case 'orthorhombic': return h*h/(a*a) + k*k/(b*b) + l*l/(c*c);
             case 'monoclinic':
                 const sinBeta = Math.sin(beta * Math.PI / 180), cosBeta = Math.cos(beta * Math.PI / 180);
+               
+                if (Math.abs(sinBeta) < 1e-9) return 0;
+               
                 return (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
         }
         return 0;
@@ -3260,6 +3875,96 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         }
     };
     
+    // --- ADD THESE 3 HELPER FUNCTIONS FOR ROBUST LS SOLVER ---
+    
+    // Helper: Performs LU decomposition with partial pivoting
+    const luDecomposition = (matrix) => {
+        const n = matrix.length;
+        const lu = matrix.map(row => row.slice());
+        const P = Array(n).fill(0).map((_, i) => i); // Permutation vector
+        for (let k = 0; k < n; k++) {
+            // Find pivot
+            let maxVal = 0;
+            let k_prime = k;
+            for (let i = k; i < n; i++) {
+                if (Math.abs(lu[i][k]) > maxVal) {
+                    maxVal = Math.abs(lu[i][k]);
+                    k_prime = i;
+                }
+            }
+            if (maxVal < 1e-12) return null; // Singular
+
+            // Swap rows
+            [P[k], P[k_prime]] = [P[k_prime], P[k]];
+            [lu[k], lu[k_prime]] = [lu[k_prime], lu[k]];
+
+            // Calculate multipliers and update
+            for (let i = k + 1; i < n; i++) {
+                lu[i][k] /= lu[k][k];
+                for (let j = k + 1; j < n; j++) {
+                    lu[i][j] -= lu[i][k] * lu[k][j];
+                }
+            }
+        }
+        return { lu, P };
+    };
+
+    // Helper: Solves Ax = b given LU decomposition
+    const luSolve = (luDecomp, b) => {
+        const { lu, P } = luDecomp;
+        const n = lu.length;
+        const x = new Array(n);
+        const y = new Array(n);
+
+        // Apply permutation to b -> get Pb
+        const Pb = P.map(pi => b[pi]);
+
+        // Solve Ly = Pb (forward substitution)
+        for (let i = 0; i < n; i++) {
+            let sum = 0;
+            for (let j = 0; j < i; j++) {
+                sum += lu[i][j] * y[j];
+            }
+            y[i] = Pb[i] - sum;
+        }
+
+        // Solve Ux = y (backward substitution)
+        for (let i = n - 1; i >= 0; i--) {
+            let sum = 0;
+            for (let j = i + 1; j < n; j++) {
+                sum += lu[i][j] * x[j];
+            }
+            x[i] = (y[i] - sum) / lu[i][i];
+            if (isNaN(x[i])) return null; // Protect against div by zero if pivot was tiny
+        }
+        return x;
+    };
+
+    // Helper: Inverts a matrix given LU decomposition
+    const luInvert = (luDecomp) => {
+        const n = luDecomp.lu.length;
+        const identity = Array(n).fill(0).map((_, i) => Array(n).fill(0).map((__, j) => (i === j ? 1 : 0)));
+        const inverse = Array(n).fill(0).map(() => Array(n).fill(0));
+
+        for (let j = 0; j < n; j++) {
+            // We need to solve for each column of the identity matrix
+            const b = Array(n).fill(0);
+            b[j] = 1;
+            
+            const invCol = luSolve(luDecomp, b);
+            if (!invCol) return null; // Failed to solve
+
+            for (let i = 0; i < n; i++) {
+                inverse[i][j] = invCol[i];
+            }
+        }
+        return inverse;
+    };
+ 
+
+
+
+
     const get_q_tolerance = (original_peak_index) => {
         const theta_rad = tth_obs_rad[original_peak_index] / 2.0;
         const d_theta_rad = tth_error * Math.PI / 360;
@@ -3291,77 +3996,61 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         let N_calc = q_calc_sorted.filter(q => q <= q_n * 1.05).length;
         if (N_calc === 0) return 0;
         const avg_delta_q = sum_delta_q / N_indexed;
-        return avg_delta_q > 0 ? (q_n / (2 * avg_delta_q * N_calc)) : 0;
+        return avg_delta_q > 1e-12 ? (q_n / (2 * avg_delta_q * N_calc)) : 0;
     };
 
+    // --- REPLACE THIS FUNCTION ---
     const solveLeastSquares = (M, q_vec, weights) => {
-    const num_eq = M.length, num_params = M[0].length;
-    if (num_eq < num_params) return null;
+        const num_eq = M.length, num_params = M[0].length;
+        if (num_eq < num_params) return null;
 
-    // --- Create a diagonal weight matrix conceptually ---
-    // If no weights are provided, default to an unweighted fit (all weights are 1)
-    const w = weights || Array(num_eq).fill(1);
-    
-    // Pre-weight the design matrix M and the observation vector q_vec
-    // This is equivalent to W*M and W*q_vec where W is a diagonal matrix
-    const weighted_M = M.map((row, i) => row.map(val => val * w[i]));
-    const weighted_q_vec = q_vec.map((q, i) => q * w[i]);
-    
-    // Standard least-squares calculations now use the weighted values
-    const MT = Array(num_params).fill(0).map((_, i) => Array(num_eq).fill(0).map((_, j) => M[j][i]));
-    
-    // Calculate M_transpose * Weighted_M, which is equivalent to MᵀWM
-    const MTWM = Array(num_params).fill(0).map((_, i) => 
-        Array(num_params).fill(0).map((_, j) => 
-            MT[i].reduce((s, v, k) => s + v * weighted_M[k][j], 0)
-        )
-    );
-    
-    const cofactor = (mat, r, c) => mat.slice(0, r).concat(mat.slice(r + 1)).map(row => row.slice(0, c).concat(row.slice(c + 1)));
-    const determinant = (mat) => {
-        if (mat.length === 0) return 1;
-        if (mat.length === 1) return mat[0][0];
-        if (mat.length === 2) return mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0];
-        return mat[0].reduce((sum, el, i) => sum + el * determinant(cofactor(mat, 0, i)) * (i % 2 === 0 ? 1 : -1), 0);
-    };
-    
-    const det = determinant(MTWM);
-    if (Math.abs(det) < 1e-12) return null; // Matrix is singular, no unique solution
-
-    const adjugate = (mat) => {
-        const n = mat.length;
-        if (n === 1) return [[1]];
-        const adj = Array(n).fill(0).map(() => Array(n).fill(0));
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++) {
-                adj[j][i] = determinant(cofactor(mat, i, j)) * ((i + j) % 2 === 0 ? 1 : -1);
+        const w = weights || Array(num_eq).fill(1);
+        
+        // M_transpose * Weighted_M (MᵀWM)
+        const MTWM = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
+        for (let i = 0; i < num_params; i++) {
+            for (let j = 0; j < num_params; j++) {
+                let sum = 0;
+                for (let k = 0; k < num_eq; k++) {
+                    sum += M[k][i] * w[k] * M[k][j];
+                }
+                MTWM[i][j] = sum;
             }
         }
-        return adj;
+        
+        // M_transpose * Weighted_q_vec (MᵀWq)
+        const MTWq = Array(num_params).fill(0);
+        for (let i = 0; i < num_params; i++) {
+            let sum = 0;
+            for (let k = 0; k < num_eq; k++) {
+                sum += M[k][i] * w[k] * q_vec[k];
+            }
+            MTWq[i] = sum;
+        }
+        
+        // Solve (MᵀWM)x = (MᵀWq) using LU decomposition
+        const luDecomp = luDecomposition(MTWM);
+        if (!luDecomp) return null; // Singular matrix
+
+        const x = luSolve(luDecomp, MTWq);
+        if (!x) return null; // Solver failed
+        
+        const df = num_eq - num_params;
+        if (df <= 0) return { solution: x, covarianceMatrix: null };
+
+        // Calculate covariance matrix V = (MᵀWM)⁻¹ * (SSR / df)
+        const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
+        const SSR = q_vec.reduce((sum, q_obs, i) => sum + w[i] * (q_obs - q_calc[i])**2, 0);
+        
+        const MTWM_inv = luInvert(luDecomp);
+        if (!MTWM_inv) return { solution: x, covarianceMatrix: null }; // Inversion failed
+
+        const V = MTWM_inv.map(row => row.map(el => el * (SSR / df)));
+
+        return { solution: x, covarianceMatrix: V };
     };
+    // --- END REPLACE ---
 
-    const invDet = 1.0 / det;
-    const MTWM_inv = adjugate(MTWM).map(row => row.map(el => el * invDet));
-    
-    // Calculate M_transpose * Weighted_q_vec, which is MᵀWq
-    const MTWq = Array(num_params).fill(0).map((_, i) => MT[i].reduce((s, v, j) => s + v * weighted_q_vec[j], 0));
-    
-    // The solution vector x = (MᵀWM)⁻¹ * (MᵀWq)
-    const x = Array(num_params).fill(0).map((_, i) => MTWM_inv[i].reduce((s, v, j) => s + v * MTWq[j], 0));
-    
-    const df = num_eq - num_params;
-    if (df <= 0) return { solution: x, covarianceMatrix: null };
-    
-    const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
-    
-    // ---Calculate the weighted sum of squared residuals ---
-    const SSR = q_vec.reduce((sum, q_obs, i) => sum + w[i] * (q_obs - q_calc[i])**2, 0);
-    
-    // The covariance matrix V = (MᵀWM)⁻¹ * (SSR / df)
-    const V = MTWM_inv.map(row => row.map(el => el * (SSR / df)));
-
-    return { solution: x, covarianceMatrix: V };
-};
 
     const propagateErrors = (system, fitResult, cell) => {
         if (!fitResult || !fitResult.covarianceMatrix) return {};
@@ -3972,6 +4661,7 @@ const indexMonoclinic = (opts = {}) => {
                 const sinBetaSq = 1 - Math.cos(betaRad)**2;
 
                 if (sinBetaSq < 1e-6) continue;
+                if (beta < 90.0 || beta > 150.0) continue;
 
                 const a = 1 / Math.sqrt(A * sinBetaSq);
                 const b = 1 / Math.sqrt(B);
@@ -4152,6 +4842,6 @@ const findTransformedSolutions = (initialSolutions) => {
 
 </script>
 
-<div id="app-footer">Combs, version 23 oct 2025</div>
+<div id="app-footer">Combs, version 24 oct 2025</div>
 </body>
 </html>
