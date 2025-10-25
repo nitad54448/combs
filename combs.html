@@ -981,9 +981,9 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     );
 
     const centeringResult = determineCentering(hkls_for_analysis, solution.system);
-    const detectedExtinctions = detectExtinctions(hkls_for_analysis);
-    
-    // --- [MODIFICATION] ---
+    const detectedExtinctions = detectExtinctions(hkls_for_analysis, solution.system, spaceGroupData);
+
+  
     // Pass 'detectedExtinctions' as the final argument
     const rankedSpaceGroups = rankSpaceGroups(
         hkls_for_analysis,
@@ -991,9 +991,9 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         centeringResult.plausibleCenterings,
         spaceGroupData,
         MAX_VIOLATIONS,
-        detectedExtinctions // <-- ADD THIS ARGUMENT
+        detectedExtinctions
     );
-    // --- [END MODIFICATION] ---
+    
 
     return {
         centering: centeringResult.description,
@@ -1105,52 +1105,85 @@ function determineCentering(indexed_hkls, system) {
 
 
 /**
- * Detects possible systematic extinctions from observed reflections.
- * This version will list a rule as "possible" even if only one peak
- * is observed in that zone, as long as it satisfies the rule.
- * (This function is called by analyzeSystematicAbsences)
+ * Detects possible systematic extinctions by checking observed reflections
+ * against all rules defined in spaceGroupData for the given system.
+ * Only lists rules where *all* observed reflections in the relevant zone
+ * satisfy the condition.
+ *
+ * @param {Array<object>} indexed_hkls - List of observed {h, k, l, ...} reflections.
+ * @param {string} system - The crystal system ('cubic', 'monoclinic', etc.).
+ * @param {object} spaceGroupData - The parsed space group JSON data.
+ * @returns {Array<string>} List of detected extinction rule strings (e.g., ["00l: l=2n", "hk0: h=2n"]) or ["None detected"].
  */
-function detectExtinctions(indexed_hkls) {
-    const confirmed = [];
-    
-    // Only test the most common/clear extinctions
-    const tests = [
-        // Axial extinctions
-        { name: '00l: l=2n', zone: r => r.h === 0 && r.k === 0 && r.l !== 0, 
-          test: r => r.l % 2 === 0 },
-        { name: 'h00: h=2n', zone: r => r.k === 0 && r.l === 0 && r.h !== 0, 
-          test: r => r.h % 2 === 0 },
-        { name: '0k0: k=2n', zone: r => r.h === 0 && r.l === 0 && r.k !== 0, 
-          test: r => r.k % 2 === 0 },
-        
-        // Common planar extinctions
-        { name: 'hk0: h+k=2n', zone: r => r.l === 0 && r.h !== 0 && r.k !== 0,
-          test: r => (r.h + r.k) % 2 === 0 },
-        { name: 'h0l: h+l=2n', zone: r => r.k === 0 && r.h !== 0 && r.l !== 0,
-          test: r => (r.h + r.l) % 2 === 0 },
-        { name: '0kl: k+l=2n', zone: r => r.h === 0 && r.k !== 0 && r.l !== 0,
-          test: r => (r.k + r.l) % 2 === 0 }
-    ];
-    
-    for (const {name, zone, test} of tests) {
-        const zoneReflections = indexed_hkls.filter(zone);
-        
-        // --- *** MODIFICATION *** ---
-        // Removed the 'minCount' check.
-        if (zoneReflections.length === 0) {
-            continue;
-        }
-        // --- *** END MODIFICATION *** ---
-        
-        // All observed reflections in zone must satisfy condition
-        if (zoneReflections.every(test)) {
-            confirmed.push(name);
-        }
-    }
-    
-    return confirmed.length > 0 ? confirmed : ["None detected"];
-}
+function detectExtinctions(indexed_hkls, system, spaceGroupData) {
+    const confirmedRules = new Set(); // Use a Set to store unique confirmed rules
 
+    if (!spaceGroupData?.space_groups || indexed_hkls.length === 0) {
+        return ["None detected (no data or rules)"];
+    }
+
+    // --- 1. Collect all unique potential rules for this system ---
+    const potentialRules = new Set();
+    Object.values(spaceGroupData.space_groups).forEach(sg => {
+        if (sg.crystal_system === system) {
+            sg.settings.forEach(setting => {
+                const conditions = setting.reflection_conditions || {};
+                Object.entries(conditions).forEach(([zone, condList]) => {
+                    condList.forEach(condStr => {
+                        potentialRules.add(`${zone}: ${condStr}`); // Store as "zone: condition" string
+                    });
+                });
+            });
+        }
+    });
+
+    if (potentialRules.size === 0) {
+         return ["None detected (no rules for system)"];
+    }
+
+    // --- 2. Test each potential rule against observed reflections ---
+
+    // Helper function to parse the rule string "zone: condition"
+    const parseRuleString = (ruleStr) => {
+        const parts = ruleStr.split(': ');
+        if (parts.length === 2) {
+            return { zone: parts[0].trim(), condition: parts[1].trim() };
+        }
+        return null; // Invalid format
+    };
+
+    potentialRules.forEach(ruleStr => {
+        const parsedRule = parseRuleString(ruleStr);
+        if (!parsedRule) return; // Skip if rule string format is wrong
+
+        const { zone, condition } = parsedRule;
+
+        // Filter reflections belonging to this specific zone designation
+        // Note: getReflectionZone determines the *most specific* zone type
+        const zoneReflections = indexed_hkls.filter(refl => getReflectionZone(refl.h, refl.k, refl.l) === zone);
+
+        // If no reflections were observed in this zone, we can't confirm the rule
+        if (zoneReflections.length === 0) {
+            return; // Continue to the next rule
+        }
+
+        // Check if *all* observed reflections in this zone satisfy the condition
+        // We reuse the satisfiesCondition helper from the countViolations function
+        const allSatisfy = zoneReflections.every(refl => satisfiesCondition(refl.h, refl.k, refl.l, condition));
+
+        if (allSatisfy) {
+            confirmedRules.add(ruleStr); // Add the confirmed rule string
+        }
+    });
+
+    // --- 3. Return results ---
+    if (confirmedRules.size === 0) {
+        return ["None detected"];
+    } else {
+        // Convert Set to array and sort for consistent output
+        return Array.from(confirmedRules).sort();
+    }
+}
 
 function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData, maxViolations, detectedExtinctions) {
     const candidateGroups = Object.values(spaceGroupData.space_groups)
@@ -1245,74 +1278,154 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     return validSettings;
 }
 
-
 /**
- * Counts how many observed reflections violate a space group's conditions.
- * (This function is a helper for analyzeSystematicAbsences)
- */
-function countViolations(indexed_hkls, rules) {
-    let count = 0;
-    const details = [];
-    
-    // Helper to check if a condition string is satisfied
+     * Helper to check if a reflection satisfies a condition string (e.g., "h+k=2n").
+     * Parses conditions like "h+k=2n", "l=4n", "2h+l=4n", "h=2n, l=2n", and "h+k, k+l, h+l=2n".
+     * Returns true if the condition is met (reflection allowed), false if violated (reflection should be absent).
+     */
     const satisfiesCondition = (h, k, l, condStr) => {
-        // Parse conditions like "h+k=2n", "l=4n", etc.
-        const match = condStr.match(/([hkl\+\-]+)=(\d+)n/);
-        if (!match) return true; // Can't parse, assume satisfied
-        
-        const [, expr, modStr] = match;
-        const mod = parseInt(modStr);
-        
-        // Evaluate the expression
-        let value = 0;
-        const terms = expr.match(/[+-]?[hkl]/g) || [];
-        for (const term of terms) {
-            const sign = term[0] === '-' ? -1 : 1;
-            const variable = term.replace(/[+-]/g, '');
-            if (variable === 'h') value += sign * h;
-            else if (variable === 'k') value += sign * k;
-            else if (variable === 'l') value += sign * l;
+        // --- Special case for F-centering rule ---
+        if (condStr === "h+k, k+l, h+l=2n") {
+            // All three sums must be even for the reflection to be ALLOWED by F-centering.
+            // If any sum is odd, the condition is VIOLATED (returns false).
+            const h_int = Math.round(h);
+            const k_int = Math.round(k);
+            const l_int = Math.round(l);
+            return (
+                (h_int + k_int) % 2 === 0 &&
+                (k_int + l_int) % 2 === 0 &&
+                (h_int + l_int) % 2 === 0
+            );
         }
-        
-        return Math.round(value) % mod === 0;
-    };
-    
-    // --- *** MODIFICATION *** ---
-    // Loop through the full reflection object to access all its properties
-    for (const reflection of indexed_hkls) {
-        const {h, k, l, calc_tth} = reflection; // Destructure h, k, l, and calc_tth
-        // --- *** END MODIFICATION *** ---
-        
-        let isViolation = false;
-        
-        // Determine which rule applies to this reflection
-        const zone = getReflectionZone(h, k, l);
-        const applicableRules = rules[zone] || [];
-        
-        // Also check general hkl rules
-        const generalRules = rules.hkl || [];
-        
-        // Check if reflection satisfies all applicable conditions
-        for (const cond of [...applicableRules, ...generalRules]) {
-            if (!satisfiesCondition(h, k, l, cond)) {
-                isViolation = true;
-                
-                // --- *** MODIFICATION *** ---
-                // Create the new, more detailed violation string
-                const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
-                details.push(`(${h},${k},${l})${tth_string} violates ${zone}: ${cond}`);
-                // --- *** END MODIFICATION *** ---
-                
-                break;
+        // --- End Special case ---
+
+        // --- Handle comma-separated conditions (e.g., "h=2n, l=2n") ---
+        const conditions = condStr.split(',').map(s => s.trim());
+
+        for (const condition of conditions) {
+            // Updated regex to handle more complex expressions like 2h+l
+            // It expects an '=' sign, a digit, and 'n'
+            const match = condition.match(/([0-9]*[hkl\+\-]+)\s*=\s*(\d+)n/); // Added \s* for optional spaces around =
+            if (!match) {
+                 // If it doesn't match the standard "expr=modN" format, log error and assume allowed for safety.
+                 console.warn(`[satisfiesCondition] Could not parse rule part: "${condition}" in rule string "${condStr}"`);
+                 continue; // Check the next part of the comma-separated rule, if any
+            }
+
+            const [, expr, modStr] = match;
+            const mod = parseInt(modStr);
+            if (isNaN(mod) || mod <= 0) {
+                 console.warn(`[satisfiesCondition] Invalid modulus in rule part: "${condition}"`);
+                 continue; // Check next part
+            }
+
+            // Evaluate the expression (handles terms like 2h, -k, etc.)
+            let value = 0;
+            // Matches terms like +h, -2k, 3l, +1h, -k etc.
+            const terms = expr.match(/[+-]?[0-9]*[hkl]/g) || [];
+
+            for (const term of terms) {
+                let sign = 1;
+                let coeff = 1;
+                let variable = '';
+                // Regex to capture sign (+/-), coefficient (optional digit), and variable (h, k, l)
+                const coeffMatch = term.match(/^([+-]?)(\d*)([hkl])$/);
+
+                if (coeffMatch) {
+                    sign = (coeffMatch[1] === '-') ? -1 : 1;
+                    // If coefficient is absent (like in 'h' or '-k'), default to 1
+                    coeff = coeffMatch[2] ? parseInt(coeffMatch[2]) : 1;
+                    variable = coeffMatch[3];
+
+                    const h_int = Math.round(h);
+                    const k_int = Math.round(k);
+                    const l_int = Math.round(l);
+
+                    if (variable === 'h') value += sign * coeff * h_int;
+                    else if (variable === 'k') value += sign * coeff * k_int;
+                    else if (variable === 'l') value += sign * coeff * l_int;
+                } else {
+                     console.warn(`[satisfiesCondition] Could not parse term "${term}" in expression "${expr}"`);
+                     // If a term can't be parsed, we can't evaluate the rule reliably.
+                     // It's safer to assume the condition might be met to avoid incorrectly flagging violations.
+                     // However, returning true here might mask issues. For now, let's continue evaluation.
+                }
+            }
+
+            // Check if the modulo condition is met for *this* part of the rule
+            // We use Math.round on the final value before the modulo operation for robustness.
+            if (Math.round(value) % mod !== 0) {
+                return false; // If any condition part fails, the whole rule fails (reflection should be absent)
             }
         }
-        
-        if (isViolation) count++;
-    }
-    
-    return { count, details: details.slice(0, 5) }; // Limit details
-}
 
+        // If all condition parts (separated by comma, or the single F-centering rule) passed
+        return true; // Reflection is allowed by this rule string
+    };
+
+
+
+
+    /**
+     * Counts how many observed reflections violate a space group's conditions.
+     * Uses the globally defined `satisfiesCondition` and `getReflectionZone`.
+     * @param {Array<object>} indexed_hkls - List of observed {h, k, l, calc_tth} reflections.
+     * @param {object} rules - The reflection_conditions object for a specific space group setting.
+     * @returns {object} { count: number, details: Array<string> }
+     */
+    function countViolations(indexed_hkls, rules) {
+        let count = 0;
+        const details = [];
+
+        for (const reflection of indexed_hkls) {
+            const { h, k, l, calc_tth } = reflection;
+            let isViolation = false;
+
+            // Determine the most specific zone for this reflection
+            const zone = getReflectionZone(h, k, l);
+
+            // Get rules specific to this zone (if any)
+            const applicableZoneRules = rules[zone] || [];
+
+            // Always check general 'hkl' rules as well
+            const generalRules = rules.hkl || [];
+
+            // Combine specific zone rules and general hkl rules that might apply
+            const allPotentiallyViolatedRules = [];
+
+            // Check if the reflection *should* be absent based on zone rules
+            for (const cond of applicableZoneRules) {
+                if (!satisfiesCondition(h, k, l, cond)) {
+                    isViolation = true;
+                    const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+                    details.push(`(${h},${k},${l})${tth_string} violates ${zone}: ${cond}`);
+                    break; // One violation is enough for this reflection
+                }
+            }
+
+            // If not already flagged, check general 'hkl' rules
+            if (!isViolation) {
+                for (const cond of generalRules) {
+                     // Check if the *zone* itself matches 'hkl' or if the reflection *also* matches a more specific zone covered by this general rule
+                     // Example: An hkl rule like "h+k=2n" applies to (110), even though its specific zone is hk0.
+                     if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zoneCond => zoneCond === cond)) {
+                          if (!satisfiesCondition(h, k, l, cond)) {
+                               isViolation = true;
+                               const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
+                               details.push(`(${h},${k},${l})${tth_string} violates hkl: ${cond}`);
+                               break; // One violation is enough
+                          }
+                     }
+                }
+            }
+
+            if (isViolation) {
+                count++;
+            }
+        }
+
+        return { count, details: details.slice(0, 5) }; // Limit details shown
+    }
 
 
 /**
@@ -3310,82 +3423,119 @@ const generatePDFReport = async () => {
                      doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos); 
                      yPos += 7; // Spacing
                      
-                     // --- 6. POSSIBLE EXTINCTIONS (Non-bold) ---
+
+
+                     // --- 6. POSSIBLE SPACE GROUPS (Non-bold) ---
                      doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); // Changed to H2, normal
                      let extinctionList = sol.analysis.detectedExtinctions || [];
+                     let extinctionText = "";
+
                      if (extinctionList.length > 0 && extinctionList[0] !== "None detected") {
-                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(extinctionList.join(', '), margin + 42, yPos);
+                         extinctionText = extinctionList.join(', '); // Join into a single string
                      } else {
-                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text("None clearly detected", margin + 42, yPos);
+                         extinctionText = "None clearly detected";
+                         doc.setFont(FONT.DATA, 'italic'); // Use italic for "None"
                      }
-                     yPos += 7; // Spacing
-                     
+
+                     // Define the starting X position and max width for the extinction text
+                     const extinctionX = margin + 42;
+                     const extinctionMaxWidth = pdfWidth - extinctionX - margin; // Max width available
+
+                     // Split the text into lines that fit the max width
+                     const extinctionLines = doc.splitTextToSize(extinctionText, extinctionMaxWidth);
+
+                     // Print the lines, adjusting yPos for each line
+                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Ensure normal font
+                     extinctionLines.forEach(line => {
+                         if (yPos > 280) { // Check for page break before printing line
+                             doc.addPage();
+                             yPos = 20;
+                         }
+                         doc.text(line, extinctionX, yPos);
+                         yPos += 4; // Move down for the next line (adjust line spacing if needed)
+                     });
+                     // yPos += 3; // Add a bit more space after the block if needed (adjust from 7)
+                     yPos += 3; // Total spacing after extinctions (was 7 before)
+
+
                      // --- 7. POSSIBLE SPACE GROUPS (Non-bold) ---
                      if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
                          if (yPos > 260) { doc.addPage(); yPos = 20; }
                          doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos); // Changed to H2, normal
-                         yPos += 5;
-                         
-                         const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
+                         yPos += 6; // Slightly more space before the list starts
+
+                         const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20); // Limit to top 20
                          const groupsByViolation = {};
-                         sgList.forEach(sg => { 
-                             const v = sg.violations || 0; 
-                             if (!groupsByViolation[v]) groupsByViolation[v] = []; 
-                             groupsByViolation[v].push(sg); 
+                         sgList.forEach(sg => {
+                             const v = sg.violations || 0;
+                             if (!groupsByViolation[v]) groupsByViolation[v] = [];
+                             // Store settings under the same number together for grouping later
+                             const existingEntry = groupsByViolation[v].find(entry => entry.number === sg.number);
+                             if (existingEntry) {
+                                 existingEntry.settings.push({ symbol: sg.symbol, violations: sg.violatedReflections });
+                             } else {
+                                 groupsByViolation[v].push({
+                                     number: sg.number,
+                                     standardSymbol: sg.standardSymbol, // Store standard symbol for reference if needed
+                                     settings: [{ symbol: sg.symbol, violations: sg.violatedReflections }]
+                                 });
+                             }
                          });
-    
-                         const maxViolationsToShow = 2;
+
+                         const maxViolationsToShow = 2; // Show details for 0, 1, and 2 violations
+
                          for (let v = 0; v <= maxViolationsToShow; v++) {
                              if (groupsByViolation[v] && groupsByViolation[v].length > 0) {
                                  if (yPos > 270) { doc.addPage(); yPos = 20; }
                                  // Sub-heading for violations (bold, but smaller than H2)
-                                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos); yPos += 5;
-                                 
-                                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use table body font
-                                 const maxLineLength = 85; 
-                                 let currentNumber = null;
-                                 let currentLine = "";
+                                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos);
+                                 yPos += 5;
 
-                                 const printCurrentLine = () => {
-                                     if (currentLine) {
-                                         const splitLines = doc.splitTextToSize(currentLine, maxLineLength);
-                                         splitLines.forEach(splitLine => {
-                                             if (yPos > 275) { doc.addPage(); yPos = 20; }
-                                             doc.text(splitLine, margin + 5, yPos); 
-                                             yPos += 4;
-                                         });
-                                     }
-                                 };
+                                 // Iterate through each unique space group number within this violation count
+                                 groupsByViolation[v].forEach(groupEntry => {
+                                     if (yPos > 280) { doc.addPage(); yPos = 20; }
 
-                                 groupsByViolation[v].forEach((sg) => {
-                                     if (sg.number !== currentNumber) {
-                                         printCurrentLine(); 
-                                         currentNumber = sg.number;
-                                         currentLine = `${sg.number}: ${sg.symbol}`;
-                                     } else {
-                                         currentLine += `, ${sg.symbol}`;
+                                     // Combine symbols for the same number
+                                     const symbolsString = groupEntry.settings.map(s => s.symbol).join(', ');
+                                     const groupLine = `${groupEntry.number}: ${symbolsString}`;
+
+                                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use table body font
+                                     
+                                     // Check if the group line itself needs wrapping
+                                     const groupLinesWrapped = doc.splitTextToSize(groupLine, pdfWidth - margin - margin - 5); // Allow some padding
+                                     groupLinesWrapped.forEach(linePart => {
+                                          if (yPos > 280) { doc.addPage(); yPos = 20; }
+                                          doc.text(linePart, margin + 5, yPos);
+                                          yPos += 4;
+                                     });
+                                     
+
+                                     // If there are violations (v > 0), print details indented
+                                     if (v > 0) {
+                                         // Get violations from the *first* setting (they should be the same for the same group # within the same violation count)
+                                         const violations = groupEntry.settings[0].violations;
+                                         if (violations && violations.length > 0) {
+                                             doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
+                                             violations.slice(0, 4).forEach(viol => { // Limit displayed violations per group
+                                                 if (yPos > 280) { doc.addPage(); yPos = 20; }
+                                                 // Indent violation details
+                                                 const violationLines = doc.splitTextToSize(viol, pdfWidth - margin - margin - 10); // More indent
+                                                 violationLines.forEach(violLine => {
+                                                     if (yPos > 280) { doc.addPage(); yPos = 20; }
+                                                     doc.text(violLine, margin + 10, yPos);
+                                                     yPos += 3.5;
+                                                 });
+                                             });
+                                             yPos += 1; // Extra space after violations for one group
+                                         }
                                      }
                                  });
-                                 
-                                 printCurrentLine(); 
-    
-                                 if (v > 0) {
-                                     const groupsToDetail = groupsByViolation[v].slice(0, 8); 
-                                     groupsToDetail.forEach(sg => {
-                                         if (yPos > 275) { doc.addPage(); yPos = 20; }
-                                         if (sg.violatedReflections && sg.violatedReflections.length > 0) {
-                                             doc.setFont(FONT.DATA, 'bold').setFontSize(SIZE.SMALL).text(`  ${sg.symbol}:`, margin + 5, yPos); yPos += 3.5;
-                                             doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL);
-                                             sg.violatedReflections.slice(0, 4).forEach(viol => { if (yPos > 280) { doc.addPage(); yPos = 20; } doc.text(`    ${viol}`, margin + 5, yPos); yPos += 3; });
-                                             yPos += 1;
-                                         }
-                                     });
-                                 }
-                                 yPos += 3;
+                                 yPos += 3; // Extra space between violation categories
                              }
                          }
                      }
-                     yPos += 3; // Spacing after space groups
+                     
+                     yPos += 3; // Spacing after space groups if section exists
 
                      // --- 8. CENTERING TEST VIOLATIONS (Non-bold) ---
                      if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
