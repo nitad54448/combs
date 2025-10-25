@@ -168,7 +168,7 @@
                     </ul>
                 </li>
                 <li><strong>Start Indexing:</strong> Click <code>Start Indexing</code>.</li>
-                <li><strong>Analyze Solutions:</strong> On the <strong>Solutions</strong> tab, review the results. Sort by M(20) and click on high-scoring solutions to visually compare the calculated (blue) and observed (red) peak markers on the chart. A good solution will also have plausible space group suggestions.</li>
+                <li><strong>Analyze Solutions:</strong> On the <strong>Solutions</strong> tab, review the results. Sort by M(20) and F(20) scores. Click on high-scoring solutions to visually compare the calculated (blue) and observed (red) peak markers on the chart. A good solution will also have plausible space group suggestions.</li>
             </ol>
         </section>
 
@@ -199,7 +199,7 @@
 
             <h4>3. Solutions Tab</h4>
             <ul>
-                <li><strong>Solutions Table:</strong> Lists all valid solutions found, with their system, parameters, volume, and M(20) score. Click a row to select it for visual analysis on the chart.</li>
+                <li><strong>Solutions Table:</strong> Lists all valid solutions found, with their system, parameters, volume, M(20) score, and F(20) score. Click a row to select it for visual analysis on the chart.</li>
             </ul>
 
             <h3>Results Area</h3>
@@ -290,6 +290,24 @@
                     <tr><td>&lt; 5</td><td>The solution is likely spurious and should be viewed with skepticism.</td></tr>
                 </tbody>
             </table>
+
+            <h3>The F(N) Figure of Merit</h3>
+            <p>
+                As a complementary metric to M(20), the program also calculates the <strong>F(N) Figure of Merit</strong>, typically for N=20 (F(20)). While M(20) focuses on the completeness and accuracy of the first 20 lines, F(N) provides a score based on the average positional accuracy of those lines.
+            </p>
+            <p>
+                It is defined by the formula:
+                $$ F_N = \frac{N}{\langle |\Delta(2\theta)| \rangle \cdot N_{calc}} $$
+                Where:
+            </p>
+            <ul>
+                <li>$N$ is the number of observed lines being evaluated (e.g., 20).</li>
+                <li>$\langle |\Delta(2\theta)| \rangle$ is the average absolute discrepancy between observed and calculated $2\theta$ positions for those $N$ lines.</li>
+                <li>$N_{calc}$ is the number of *possible* theoretical reflections (including unobserved ones) up to the $2\theta$ position of the $N^{th}$ observed line.</li>
+            </ul>
+            <p>
+                A high F(N) value indicates a very high-quality fit with low average error. Together, a high M(20) (indicating a correct and complete cell) and a high F(N) (indicating high precision) give strong confidence in a solution.
+            </p>
 
             <h3>Least-Squares and Zero-Point Refinement</h3>
             <p>
@@ -386,7 +404,7 @@
                 If the symmetries are also equal (e.g., two different monoclinic cells), the program compares their M(20) scores. Crucially, it treats M(20) scores as "effectively equal" if they are within a small tolerance (e.g., $\Delta M(20) < 0.05$). In this tie-breaker scenario, it invokes crystallographic conventions:
             </p>
             <ul>
-                <li><strong>For Monoclinic Cells:</strong> If two solutions have effectively equal M(20) scores, the program will prefer the solution whose $\beta$ angle is <strong>closer to 90°</strong> (e.g., 106° will be preferred over 147°).</li>
+                <li><strong>For Monoclinic Cells:</strong> A special filter is applied. If two monoclinic solutions have <strong>volumes within 2%</strong> of each other and have effectively equal M(20) scores, the program will prefer the solution whose $\beta$ angle is <strong>closer to 90°</strong> (e.g., 106° will be preferred over 147°).</li>
                 <li><strong>For Other Systems:</strong> If M(20) scores are tied, the first solution found is retained.</li>
             </ul>
         </section>
@@ -418,6 +436,10 @@
                 <li>
                     <strong>The M(20) Figure of Merit:</strong><br>
                     de Wolff, P. M. (1968). "A Simplified Criterion for the Reliability of a Powder Pattern Indexing." <em>Journal of Applied Crystallography</em>, <strong>1</strong>, 108-113.
+                </li>
+                <li>
+                    <strong>The F(N) Figure of Merit:</strong><br>
+                    Smith, G. S. & Snyder, R. L. (1979). "F(N): A Criterion for Rating Powder Diffraction Patterns and Evaluating the Reliability of Powder-Pattern Indexing." <em>Journal of Applied Crystallography</em>, <strong>12</strong>, 60-65.
                 </li>
                 <li>
                     <strong>General Powder Diffraction Text:</strong><br>

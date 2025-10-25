@@ -3203,27 +3203,22 @@ const generatePDFReport = async () => {
                 yPos += 5;
             });
     
-            // --- Detailed Solution Pages ---
+
+
+
+
+
+// --- Detailed Solution Pages ---
             displayedSolutions.forEach((sol, solIndex) => {
                 doc.addPage(); yPos = 20;
-                doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H2);
                 
-                // Format M(20) / F(N_20) line
-                const n_20_pdf = sol.n_20 || Math.min(20, pickedPeaks.length);
-                const m_20_str = `M(${n_20_pdf}) = ${sol.m20.toFixed(2)}`;
-                const f_20_str = `F(${n_20_pdf}) = ${(sol.fN_20 || 0).toFixed(2)}`;
-                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); yPos += 7;
+                // --- 1. MAIN TITLE (Large, Bold) ---
+                doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1); // Changed to SIZE.H1
+                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); 
+                yPos += 8; // Increased spacing after main title
                 
-                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
-                doc.text(`${m_20_str}, ${f_20_str}`, margin, yPos); yPos += 5;
-
-                // Format M(all) / F(N_all) line
-                const n_all_pdf = sol.n_all || pickedPeaks.length;
-                const m_all_str = `M(${n_all_pdf}) = ${(sol.m_all || 0).toFixed(2)}`;
-                const f_all_str = `F(${n_all_pdf}) = ${(sol.fN_all || 0).toFixed(2)}`;
-                doc.text(`${m_all_str}, ${f_all_str}`, margin, yPos); yPos += 7;
-                
-                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+                // --- 2. PARAMETERS AND VOLUME ---
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Data font size
                 const p = sol.errors || {};
                 const paramLines = [];
                 switch (sol.system) {
@@ -3234,72 +3229,102 @@ const generatePDFReport = async () => {
                      case 'monoclinic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`); break;
                 }
                 paramLines.forEach(line => { doc.text(line, margin, yPos); yPos += 4; });
+                doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); 
+               
+                yPos += 4; 
+
+
+
+
+                               doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Back to body font
+                if (sol.zero_correction !== undefined) { 
+                    doc.text(`Zero Error (2theta) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); 
+                    yPos += 4; 
+                }
+               
+             //      yPos += 4; // Spacing after parameters
+                              const n_20_pdf = sol.n_20 || Math.min(20, pickedPeaks.length);
+                const m_20_str = `M(${n_20_pdf}) = ${sol.m20.toFixed(2)}`;
+                const f_20_str = `F(${n_20_pdf}) = ${(sol.fN_20 || 0).toFixed(2)}`;
+                doc.text(`${m_20_str}, ${f_20_str}`, margin, yPos); 
+                yPos += 4;
+
+                const n_all_pdf = sol.n_all || pickedPeaks.length;
+                const m_all_str = `M(${n_all_pdf}) = ${(sol.m_all || 0).toFixed(2)}`;
+                const f_all_str = `F(${n_all_pdf}) = ${(sol.fN_all || 0).toFixed(2)}`;
+                doc.text(`${m_all_str}, ${f_all_str}`, margin, yPos); 
+                
     
-                if (sol.zero_correction !== undefined) { doc.text(`Zero Error (2theta) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); yPos += 4; }
-                doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); yPos += 6;
-    
+               yPos += 7;
+             
+
+                // --- 3. NIGGLI REDUCED CELL (Moved up, Non-bold) ---
+                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
+                yPos += 6;
+
+                try {
+                    const niggliResult = reduceToNiggliCell(sol);
+                    const nCell = niggliResult.cell;
+
+                    const niggliLines = [
+                        `a = ${nCell.a.toFixed(4)} A`,
+                        `b = ${nCell.b.toFixed(4)} A`,
+                        `c = ${nCell.c.toFixed(4)} A`,
+                        `alpha = ${nCell.alpha.toFixed(3)} deg`,
+                        `beta  = ${nCell.beta.toFixed(3)} deg`,
+                        `gamma = ${nCell.gamma.toFixed(3)} deg`                       
+                    ];
+
+                    doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
+
+                    const col1X_niggli = margin + 5;
+                    const col2X_niggli = margin + 65;
+
+                    doc.text(niggliLines[0], col1X_niggli, yPos);
+                    doc.text(niggliLines[3], col2X_niggli, yPos);
+                    yPos += 4;
+
+                    doc.text(niggliLines[1], col1X_niggli, yPos);
+                    doc.text(niggliLines[4], col2X_niggli, yPos);
+                    yPos += 4;
+
+                    doc.text(niggliLines[2], col1X_niggli, yPos);
+                    doc.text(niggliLines[5], col2X_niggli, yPos);
+                    yPos += 5;
+
+                } catch (niggliError) {
+                    console.error("Niggli reduction failed:", niggliError);
+                    doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
+                    doc.text('Reduction failed. See console for error.', margin + 5, yPos);
+                    yPos += 5;
+                }
+                
+                
+               yPos += 4;
+
+
+ 
+                // --- 5. LATTICE CENTERING (Non-bold) ---
                 if (sol.analysis) {
-                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text(`Lattice Centering:`, margin, yPos);
-                     doc.setFont(FONT.DATA, 'normal').text(sol.analysis.centering, margin + 42, yPos); yPos += 5;
+                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text(`Lattice Centering:`, margin, yPos); // Changed to H2, normal
+                     doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos); 
+                     yPos += 7; // Spacing
                      
-                     doc.setFont(FONT.LABEL, 'normal').text('Possible Extinctions:', margin, yPos);
+                     // --- 6. POSSIBLE EXTINCTIONS (Non-bold) ---
+                     doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); // Changed to H2, normal
                      let extinctionList = sol.analysis.detectedExtinctions || [];
-                     if (extinctionList.length > 0) {
-                         doc.setFont(FONT.DATA, 'normal').text(extinctionList.join(', '), margin + 42, yPos);
+                     if (extinctionList.length > 0 && extinctionList[0] !== "None detected") {
+                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(extinctionList.join(', '), margin + 42, yPos);
                      } else {
-                         doc.setFont(FONT.DATA, 'italic').text("None clearly detected", margin + 42, yPos);
+                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY).text("None clearly detected", margin + 42, yPos);
                      }
-                     yPos += 7;
+                     yPos += 7; // Spacing
                      
-
-   //--------------
-                     doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY);
-                     doc.text('Niggli Reduced Cell:', margin, yPos);
-                     yPos += 5;
-
-                     try {
-                         const niggliResult = reduceToNiggliCell(sol);
-                        const nCell = niggliResult.cell;
-
-                         const niggliLines = [
-                            `a = ${nCell.a.toFixed(4)} A`,
-                             `b = ${nCell.b.toFixed(4)} A`,
-                             `c = ${nCell.c.toFixed(4)} A`,
-                             `alpha = ${nCell.alpha.toFixed(3)} deg`,
-                             `beta  = ${nCell.beta.toFixed(3)} deg`,
-                             `gamma = ${nCell.gamma.toFixed(3)} deg`                       
-                            ];
-
-                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
-
-                         const col1X_niggli = margin + 5;
-                         const col2X_niggli = margin + 65;
-
-                         doc.text(niggliLines[0], col1X_niggli, yPos);
-                         doc.text(niggliLines[3], col2X_niggli, yPos);
-                         yPos += 4;
-
-                         doc.text(niggliLines[1], col1X_niggli, yPos);
-                         doc.text(niggliLines[4], col2X_niggli, yPos);
-                         yPos += 4;
-
-                         doc.text(niggliLines[2], col1X_niggli, yPos);
-                         doc.text(niggliLines[5], col2X_niggli, yPos);
-                         yPos += 5;
-
-                     } catch (niggliError) {
-                         console.error("Niggli reduction failed:", niggliError);
-                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
-                         doc.text('Reduction failed. See console for error.', margin + 5, yPos);
-                         yPos += 5;
-                     }
-                     yPos += 3; // Padding after Niggli cell
-
-  
-
+                     // --- 7. POSSIBLE SPACE GROUPS (Non-bold) ---
                      if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
                          if (yPos > 260) { doc.addPage(); yPos = 20; }
-                         doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text('Possible Space Groups:', margin, yPos); yPos += 5;
+                         doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos); // Changed to H2, normal
+                         yPos += 5;
                          
                          const sgList = sol.analysis.rankedSpaceGroups.slice(0, 20);
                          const groupsByViolation = {};
@@ -3313,17 +3338,14 @@ const generatePDFReport = async () => {
                          for (let v = 0; v <= maxViolationsToShow; v++) {
                              if (groupsByViolation[v] && groupsByViolation[v].length > 0) {
                                  if (yPos > 270) { doc.addPage(); yPos = 20; }
+                                 // Sub-heading for violations (bold, but smaller than H2)
                                  doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.BODY).text(`[${v} violation${v !== 1 ? 's' : ''}]:`, margin, yPos); yPos += 5;
                                  
-                                 // --- [NEW LOGIC] ---
-                                 // The list groupsByViolation[v] is ALREADY sorted by our new rules.
-                                 // We just need to iterate it and group adjacent symbols by number.
-                                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+                                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use table body font
                                  const maxLineLength = 85; 
                                  let currentNumber = null;
                                  let currentLine = "";
 
-                                 // Helper to print the current line
                                  const printCurrentLine = () => {
                                      if (currentLine) {
                                          const splitLines = doc.splitTextToSize(currentLine, maxLineLength);
@@ -3335,20 +3357,17 @@ const generatePDFReport = async () => {
                                      }
                                  };
 
-                                 // Iterate through the already-sorted list of groups
                                  groupsByViolation[v].forEach((sg) => {
                                      if (sg.number !== currentNumber) {
-                                         printCurrentLine(); // Print the previous line
-                                         // Start a new line
+                                         printCurrentLine(); 
                                          currentNumber = sg.number;
                                          currentLine = `${sg.number}: ${sg.symbol}`;
                                      } else {
-                                         // Add to the current line
                                          currentLine += `, ${sg.symbol}`;
                                      }
                                  });
                                  
-                                 printCurrentLine(); // Print the very last line
+                                 printCurrentLine(); 
     
                                  if (v > 0) {
                                      const groupsToDetail = groupsByViolation[v].slice(0, 8); 
@@ -3366,22 +3385,24 @@ const generatePDFReport = async () => {
                              }
                          }
                      }
+                     yPos += 3; // Spacing after space groups
 
-                     
-//
-
+                     // --- 8. CENTERING TEST VIOLATIONS (Non-bold) ---
                      if (sol.analysis.centeringViolations && Object.keys(sol.analysis.centeringViolations).length > 0) {
                          if (yPos > 268) { doc.addPage(); yPos = 20; }
-                         doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.BODY).text('Centering test violations:', margin, yPos); yPos += 5;
+                         doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Centering test violations:', margin, yPos); // Changed to H2, normal
+                         yPos += 5;
                          const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
                          doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
                          yPos += 5;
                      }
                 } 
-                yPos += 4;
+                yPos += 4; 
                 if (yPos > 255) { doc.addPage(); yPos = 20; }
     
-                /* --- REFLECTION TABLE ... */
+
+
+            /* --- REFLECTION TABLE ... */
     
                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
                 const tableHeader = ' h k l   | 2th_meas 2th_corr 2th_calc | d_corr     d_calc    | diff(2th)';
