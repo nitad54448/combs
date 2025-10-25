@@ -2131,16 +2131,16 @@ function getReflectionZone(h, k, l) {
                     const m20_i = solutions[i].m20;
                     const m20_j = solutions[j].m20;
                     
-                    // --- *** MODIFIED LOGIC HERE *** ---
-                    // Treat M(20) scores as "equal" if they are within a small tolerance
-                    const m20_tolerance = 0.05; 
+                    const m20_percent_tolerance = 0.02; // <-- This is 2%
 
-                    if (m20_i > (m20_j + m20_tolerance)) {
+                    // Check if i is significantly better than j (more than 2% higher than j)
+                    if (m20_i > (m20_j * (1.0 + m20_percent_tolerance))) {
                         toKeep[j] = false; // i is clearly better
                     
-                    } else if (m20_j > (m20_i + m20_tolerance)) {
+                    // Check if j is significantly better than i (more than 2% higher than i)
+                    } else if (m20_j > (m20_i * (1.0 + m20_percent_tolerance))) {
                         toKeep[i] = false; // j is clearly better
-                        break; 
+                        break;
                     
                     } else {
                         // M(20) are effectively equal, check for monoclinic beta convention
@@ -3046,11 +3046,7 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
     return results;
 }
 
-
-
-
-
-    const generatePDFReport = async () => {
+const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
             return;
@@ -3179,9 +3175,12 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
             doc.text('Sys', margin, yPos);
-            doc.text('M(20)', margin + 15, yPos);
-            doc.text('Volume(A^3)', margin + 35, yPos);
-            doc.text('Parameters', margin + 65, yPos);
+            // Get N from the *first* solution, or fall back to peak count
+            const first_sol_n_20 = (displayedSolutions.length > 0 && displayedSolutions[0].n_20) ? displayedSolutions[0].n_20 : Math.min(20, pickedPeaks.length);
+            doc.text(`M(${first_sol_n_20})`, margin + 15, yPos);
+            doc.text(`F(${first_sol_n_20})`, margin + 30, yPos);
+            doc.text('Volume(A^3)', margin + 45, yPos);
+            doc.text('Parameters', margin + 75, yPos);
             yPos += 5;
     
             doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
@@ -3198,8 +3197,9 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
                 }
                 doc.text(sol.system.substring(0,4), margin, yPos);
                 doc.text(sol.m20.toFixed(2), margin + 15, yPos);
-                doc.text(sol.volume.toFixed(2), margin + 35, yPos);
-                doc.text(paramStr, margin + 65, yPos);
+                doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos); // Use fN_20
+                doc.text(sol.volume.toFixed(2), margin + 45, yPos);
+                doc.text(paramStr, margin + 75, yPos);
                 yPos += 5;
             });
     
@@ -3207,7 +3207,21 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
             displayedSolutions.forEach((sol, solIndex) => {
                 doc.addPage(); yPos = 20;
                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H2);
-                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos); yPos += 7;
+                
+                // Format M(20) / F(N_20) line
+                const n_20_pdf = sol.n_20 || Math.min(20, pickedPeaks.length);
+                const m_20_str = `M(${n_20_pdf}) = ${sol.m20.toFixed(2)}`;
+                const f_20_str = `F(${n_20_pdf}) = ${(sol.fN_20 || 0).toFixed(2)}`;
+                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); yPos += 7;
+                
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
+                doc.text(`${m_20_str}, ${f_20_str}`, margin, yPos); yPos += 5;
+
+                // Format M(all) / F(N_all) line
+                const n_all_pdf = sol.n_all || pickedPeaks.length;
+                const m_all_str = `M(${n_all_pdf}) = ${(sol.m_all || 0).toFixed(2)}`;
+                const f_all_str = `F(${n_all_pdf}) = ${(sol.fN_all || 0).toFixed(2)}`;
+                doc.text(`${m_all_str}, ${f_all_str}`, margin, yPos); yPos += 7;
                 
                 doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY);
                 const p = sol.errors || {};
@@ -3440,8 +3454,7 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
             ui.reportButton.disabled = (solutions.length === 0);
             document.body.style.cursor = 'default';
         }
-    };
-    
+    };  
 
 
 
@@ -3982,24 +3995,65 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return (low >= arr.length) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
     };
     
-    const calculateM20 = (q_calc_sorted, q_obs_for_m20, original_indices_for_m20) => {
-        if (!q_calc_sorted || q_calc_sorted.length === 0) return 0;
-        let N_indexed = 0, sum_delta_q = 0;
-        for (let i = 0; i < N_FOR_M20; i++) {
-            const q_o = q_obs_for_m20[i];
-            const tolerance = get_q_tolerance(original_indices_for_m20[i]);
-            const diff = Math.abs(q_o - q_calc_sorted[binarySearchClosest(q_calc_sorted, q_o)]);
-            if (diff < tolerance) { N_indexed++; sum_delta_q += diff; }
+    const calculateFiguresOfMerit = (q_calc_sorted, peaks_for_merit) => {
+        // peaks_for_merit is an array of peak objects: {tth, q, original_index}
+        if (!q_calc_sorted || q_calc_sorted.length === 0) return { m20: 0, fN: 0 };
+        
+        const N = peaks_for_merit.length;
+        if (N === 0) return { m20: 0, fN: 0 };
+
+        let N_indexed = 0, sum_delta_q = 0, sum_delta_tth = 0;
+
+        // Get Q and 2-theta of the Nth observed peak
+        const q_n = peaks_for_merit[N - 1].q;
+        const tth_n_deg = peaks_for_merit[N - 1].tth;
+
+        for (let i = 0; i < N; i++) {
+            const obs_peak = peaks_for_merit[i];
+            const q_o = obs_peak.q;
+            const tth_o_deg = obs_peak.tth;
+            const tolerance_q = get_q_tolerance(obs_peak.original_index);
+
+            // Find closest calculated Q-value
+            const closest_q_calc_idx = binarySearchClosest(q_calc_sorted, q_o);
+            const q_c = q_calc_sorted[closest_q_calc_idx];
+            const diff_q = Math.abs(q_o - q_c);
+
+            // Check if it's indexed
+            if (diff_q < tolerance_q) {
+                N_indexed++;
+                sum_delta_q += diff_q;
+                
+                // Convert q_c back to 2-theta to get the 2-theta difference
+                const sinThetaSq_c = (q_c * wavelength**2) / 4;
+                if (sinThetaSq_c >= 0 && sinThetaSq_c <= 1) {
+                    const tth_c_rad = 2 * Math.asin(Math.sqrt(sinThetaSq_c));
+                    const tth_c_deg = tth_c_rad * 180 / Math.PI;
+                    sum_delta_tth += Math.abs(tth_o_deg - tth_c_deg);
+                }
+            }
         }
-        if (N_FOR_M20 - N_indexed > impurity_peaks || N_indexed === 0) return 0;
-        const q_n = q_obs_for_m20[N_FOR_M20 - 1];
-        let N_calc = q_calc_sorted.filter(q => q <= q_n * 1.05).length;
-        if (N_calc === 0) return 0;
+        
+        // --- Fail fast ---
+        if (N - N_indexed > impurity_peaks || N_indexed === 0) return { m20: 0, fN: 0 };
+
+        // --- M(N) Calculation ---
         const avg_delta_q = sum_delta_q / N_indexed;
-        return avg_delta_q > 1e-12 ? (q_n / (2 * avg_delta_q * N_calc)) : 0;
+        // N_calc for M(N) is number of calculated lines up to the Nth *observed Q*
+        const N_calc_M = q_calc_sorted.filter(q => q <= q_n * 1.05).length;
+        const mN = (N_calc_M > 0 && avg_delta_q > 1e-12) ? (q_n / (2 * avg_delta_q * N_calc_M)) : 0;
+
+        // --- F(N) Calculation ---
+        const avg_delta_tth = sum_delta_tth / N_indexed;
+        // N_calc for F(N) is number of calculated lines up to the Nth *observed 2-theta*
+        const q_limit_fN = (4 * Math.sin(tth_n_deg * Math.PI / 360)**2) / (wavelength**2);
+        const N_calc_FN = q_calc_sorted.filter(q => q <= q_limit_fN * 1.0001).length; // Use tiny margin
+        const fN = (N_calc_FN > 0 && avg_delta_tth > 1e-12) ? ((1 / avg_delta_tth) * (N_indexed / N_calc_FN)) : 0;
+
+        return { m20: mN, fN: fN }; // Return M(N) and F(N)
     };
 
-    // --- REPLACE THIS FUNCTION ---
+
     const solveLeastSquares = (M, q_vec, weights) => {
         const num_eq = M.length, num_params = M[0].length;
         if (num_eq < num_params) return null;
@@ -4260,19 +4314,41 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return;
     }
 
-    // STEP 3: Validate the refined cell with an M(20) score; je devrais mettre F(N) peut être
+// STEP 3: Validate the refined cell with M(20) and M(all)
     const q_calc_set = new Set(generateHKL_for_worker(initial_cell).map(r => r.q));
     const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
-    const m20 = calculateM20(q_calc_sorted, q_obs, original_indices);
     
-    if (m20 <= min_m20) {
+    // --- Calculate M(20) and F(N_20) ---
+    // Note: N_FOR_M20 is the variable (e.g., 20)
+    // n_20 is the *actual* number of peaks used (e.g., 15 if file only has 15 peaks)
+    const n_20 = Math.min(N_FOR_M20, peaks_sorted_by_q.length);
+    const peaks_for_merit_20 = peaks_sorted_by_q.slice(0, n_20);
+    const { m20, fN: fN_20 } = calculateFiguresOfMerit(q_calc_sorted, peaks_for_merit_20);
+    
+    if (m20 <= min_m20) { // Still use M(20) as the primary gatekeeper
         return;
     }
 
+    // --- Calculate M(all) and F(all) ---
+    const n_all = peaks_sorted_by_q.length;
+    const peaks_for_merit_all = peaks_sorted_by_q; // Use all peaks
+    // We pass `peaks_for_merit_all` which has N=n_all peaks
+    const { m20: m_all, fN: fN_all } = calculateFiguresOfMerit(q_calc_sorted, peaks_for_merit_all);
+
     let final_solution_to_post = initial_cell;
-    final_solution_to_post.m20 = m20;
+    final_solution_to_post.m20 = m20;       // M(20)
+    final_solution_to_post.fN_20 = fN_20;   // F(N_20)
+    final_solution_to_post.n_20 = n_20;     // N_20
+    final_solution_to_post.m_all = m_all;   // M(N_all)
+    final_solution_to_post.fN_all = fN_all; // F(N_all)
+    final_solution_to_post.n_all = n_all;   // N_all
     final_solution_to_post.errors = propagateErrors(system, fitResult_no_zero, initial_cell);
-    
+
+
+
+
+
+
     // STEP 4: Perform the FINAL refinement WITH zero error, if the user enabled it
     if (refineZero) {
         const all_possible_reflections = generateHKL_for_worker(initial_cell);
@@ -4317,19 +4393,55 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     refined_cell.zero_correction = fitResult_with_zero_final.solution[fitResult_with_zero_final.solution.length - 1] * 180 / Math.PI;
                     refined_cell.volume = getVolume(refined_cell);
                     
+
                     const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell).map(r => r.q));
                     const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
-                    const q_obs_for_m20_refined = new Float64Array(peaks_sorted_by_q.map(p => {
-                        const corrected_tth_rad = (peaks[p.original_index].tth - refined_cell.zero_correction) * Math.PI / 180;
-                        return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                    }));
-                    const final_m20 = calculateM20(q_calc_sorted_refined, q_obs_for_m20_refined, original_indices);
+
+                    // --- Calculate M(20) and F(N_20) for refined cell ---
+                    const n_20_refined = Math.min(N_FOR_M20, peaks_sorted_by_q.length);
+                    const peaks_for_merit_20_refined = [];
+                    // Create corrected peak list for N <= 20
+                    for (let i = 0; i < n_20_refined; i++) {
+                        const original_peak = peaks_sorted_by_q[i];
+                        const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                        const corrected_tth_rad = corrected_tth_deg * Math.PI / 180;
+                        const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                        peaks_for_merit_20_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                    }
                     
-                    if (final_m20 > min_m20) {
+                    const { m20: final_m20, fN: final_fN_20 } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_20_refined);
+                    
+                    if (final_m20 > min_m20) { // Still use M(20) as the gatekeeper
+                        
+                        // --- Calculate M(all) and F(all) for refined cell ---
+                        const n_all_refined = peaks_sorted_by_q.length;
+                        const peaks_for_merit_all_refined = [];
+                        // Create corrected peak list for ALL N peaks
+                        for (let i = 0; i < n_all_refined; i++) {
+                            const original_peak = peaks_sorted_by_q[i];
+                            const corrected_tth_deg = original_peak.tth - refined_cell.zero_correction;
+                            const corrected_tth_rad = corrected_tth_deg * Math.PI / 180;
+                            const corrected_q = (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                            peaks_for_merit_all_refined.push({ ...original_peak, q: corrected_q, tth: corrected_tth_deg });
+                        }
+                        
+                        const { m20: final_m_all, fN: final_fN_all } = calculateFiguresOfMerit(q_calc_sorted_refined, peaks_for_merit_all_refined);
+                        
+                        // Attach all values to the final solution
                         refined_cell.m20 = final_m20;
+                        refined_cell.fN_20 = final_fN_20;
+                        refined_cell.n_20 = n_20_refined;
+                        refined_cell.m_all = final_m_all;
+                        refined_cell.fN_all = final_fN_all;
+                        refined_cell.n_all = n_all_refined;
+                        
                         refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
                         final_solution_to_post = refined_cell; 
                     }
+
+
+
+
                 }
             }
         }
@@ -4838,10 +4950,13 @@ const findTransformedSolutions = (initialSolutions) => {
 - ordre des groupes d'espaces du plus symmetrique vers le standard dans le rapport
 - 1.18 milliard de cellules en monoclinic !
 - better sieveng -prend le beta le plus proche de 90, si le volume et M sont les mêmes
+*** 25 oct 2025
+- added F(N) in the report file
+- sorted monoclinic if M is whithin 2%
 */
 
 </script>
 
-<div id="app-footer">Combs, version 24 oct 2025</div>
+<div id="app-footer">Combs, version 25 oct 2025</div>
 </body>
 </html>
