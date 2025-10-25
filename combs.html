@@ -733,7 +733,31 @@ const WAVELENGTH_PRESETS = {
     let isIndexing = false;
     let activeWorkers = [];
     let sortState = { column: 'm20', direction: 'desc' };
-    let workerURL = null;
+    let workerURL = null;    
+    // --- Dynamic Pruning Constants ---
+    const MAX_SOLUTIONS_BEFORE_PRUNING = 50;
+    const PRUNE_TO_COUNT = 40; // Prune down to this many
+
+    /**
+     * Dynamically prunes the global 'solutions' list if it exceeds the max count.
+     * It sorts by M(20) descending and keeps only the best ones.
+     */
+    const pruneSolutions = () => {
+        // Only run if we are over the limit
+        if (solutions.length <= MAX_SOLUTIONS_BEFORE_PRUNING) return;
+
+        // Sort by m20 descending to find the best ones
+        solutions.sort((a, b) => b.m20 - a.m20);
+        
+        // Keep only the top PRUNE_TO_COUNT solutions
+        solutions = solutions.slice(0, PRUNE_TO_COUNT);
+        
+        // The main 'onmessage' handler will call sortSolutions() *after* this,
+        // which will re-sort the newly pruned list based on the user's UI selection.
+    };
+
+
+
 
     const setupWorker = () => {
         try {
@@ -749,152 +773,176 @@ const WAVELENGTH_PRESETS = {
 
     // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
     const max_hkl_analysis = 10;
+
     function generateHKL_for_analysis(params, lambda, maxTth) {
-    const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
-    const b = b_in ?? a;
-    const c = c_in ?? a;
-    const beta = beta_in ?? 90;
-    const reflections = [];
+        const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
+        const b = b_in ?? a;
+        const c = c_in ?? a;
+        const beta = beta_in ?? 90;
+        const reflections = [];
 
-    const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
-    const q_max_limit = (1 / (d_min * d_min)) * 1.05;
-    const h_max = Math.ceil(a / d_min) + 1;
-    const k_max = Math.ceil(b / d_min) + 1;
-    const l_max = Math.ceil(c / d_min) + 1;
+        const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
+        // Use a 1.05 safety margin for the q-limit
+        const q_max_limit = (1 / (d_min * d_min)) * 1.05; 
+        // Add +1 to max h/k/l to ensure the loop includes the largest possible index
+        const h_max = Math.ceil(a / d_min) + 1;
+        const k_max = Math.ceil(b / d_min) + 1;
+        const l_max = Math.ceil(c / d_min) + 1;
 
-    const processReflection = (h, k, l, inv_d_sq) => {
-        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return; // This check remains
-        const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-        if (sinThetaSq <= 1) {
-            const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-            reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq) });
-        }
-    };
-
-    switch (system) {
-        case 'cubic':
-            for (let h = 0; h <= h_max; h++) {
-                const h_term = (h * h) / (a * a);
-                if (h_term > q_max_limit) break; // OPTIMIZATION
-                
-                for (let k = 0; k <= h; k++) {
-                    const hk_term = h_term + (k * k) / (a * a);
-                    if (hk_term > q_max_limit) break; // OPTIMIZATION
-                    
-                    for (let l = 0; l <= k; l++) {
-                        if (h === 0 && k === 0 && l === 0) continue;
-                        const inv_d_sq = hk_term + (l * l) / (a * a);
-                        // processReflection will handle the final q_max check
-                        processReflection(h, k, l, inv_d_sq);
-                    }
-                }
+        const processReflection = (h, k, l, inv_d_sq) => {
+            // This final check is still necessary
+            if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return; 
+            const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+            if (sinThetaSq <= 1) {
+                const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq) });
             }
-            break;
+        };
 
-        case 'tetragonal':
-        case 'hexagonal':
-            // Loop l first, as it's independent
-            for (let l = 0; l <= l_max; l++) {
-                const l_term = (l * l) / (c * c);
-                if (l_term > q_max_limit) break; // OPTIMIZATION
-                
+        switch (system) {
+            case 'cubic':
                 for (let h = 0; h <= h_max; h++) {
-                    let h_term_base, hk_term;
-                    if (system === 'tetragonal') {
-                        h_term_base = (h * h) / (a * a);
-                    } else { // hexagonal
-                        h_term_base = (4 / 3) * (h * h) / (a * a);
-                    }
-                    if (l_term + h_term_base > q_max_limit && h > 0) break; // OPTIMIZATION
-
+                    const h_term = (h * h) / (a * a);
+                    if (h_term > q_max_limit) break; 
                     for (let k = 0; k <= h; k++) {
-                        if (h === 0 && k === 0 && l === 0) continue;
+                        const hk_term = h_term + (k * k) / (a * a);
+                        if (hk_term > q_max_limit) break; 
+                        for (let l = 0; l <= k; l++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
+                            const inv_d_sq = hk_term + (l * l) / (a * a);
+                            // processReflection handles the final q_max check
+                            processReflection(h, k, l, inv_d_sq);
+                        }
+                    }
+                }
+                break;
 
-                        let inv_d_sq;
+            case 'tetragonal':
+            case 'hexagonal':
+                 for (let l = 0; l <= l_max; l++) {
+                    const l_term = (l * l) / (c * c);
+                    if (l_term > q_max_limit) break; 
+                    
+                    for (let h = 0; h <= h_max; h++) {
+                        let h_term_base;
                         if (system === 'tetragonal') {
-                            inv_d_sq = l_term + (h * h + k * k) / (a * a);
+                            h_term_base = (h * h) / (a * a);
                         } else { // hexagonal
-                            inv_d_sq = l_term + (4 / 3) * (h * h + h * k + k * k) / (a * a);
+                            h_term_base = (4 / 3) * (h * h) / (a * a);
                         }
-                        
-                        // Check before processing
-                        if (inv_d_sq > q_max_limit) {
-                             if (k === 0) break; // Break h-loop if k=0 fails
-                             else continue; // Just skip this k
+                        if (l_term + h_term_base > q_max_limit && h > 0) break; 
+
+                        for (let k = 0; k <= h; k++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
+
+                            let inv_d_sq;
+                            if (system === 'tetragonal') {
+                                inv_d_sq = l_term + (h * h + k * k) / (a * a);
+                            } else { // hexagonal
+                                inv_d_sq = l_term + (4 / 3) * (h * h + h * k + k * k) / (a * a);
+                            }
+                            
+                            processReflection(h, k, l, inv_d_sq);
                         }
-                        
-                        processReflection(h, k, l, inv_d_sq);
                     }
                 }
-            }
-            break;
+                break;
 
-        case 'orthorhombic':
-            for (let h = 0; h <= h_max; h++) {
-                const h_term = (h * h) / (a * a);
-                if (h_term > q_max_limit) break; // OPTIMIZATION
-                
-                for (let k = 0; k <= k_max; k++) {
-                    const hk_term = h_term + (k * k) / (b * b);
-                    if (hk_term > q_max_limit) break; // OPTIMIZATION
+            case 'orthorhombic':
+                for (let h = 0; h <= h_max; h++) {
+                    const h_term = (h * h) / (a * a);
+                    if (h_term > q_max_limit) break; 
                     
-                    for (let l = 0; l <= l_max; l++) {
-                        if (h === 0 && k === 0 && l === 0) continue;
-                        const inv_d_sq = hk_term + (l * l) / (c * c);
-                        processReflection(h, k, l, inv_d_sq);
-                    }
-                }
-            }
-            break;
-
-        case 'monoclinic':
-            // Monoclinic is hard to prune this way due to the h*l term.
-            // The existing check inside processReflection is the most robust.
-            const sinBeta = Math.sin(beta * Math.PI / 180);
-            const cosBeta = Math.cos(beta * Math.PI / 180);
-            const sinBetaSq = sinBeta * sinBeta;
-            if (sinBetaSq < 1e-6) return [];
-
-            for (let h = -h_max; h <= h_max; h++) {
-                for (let k = 0; k <= k_max; k++) {
-                    const k_term = (k * k) / (b * b);
-                    if (k_term > q_max_limit) break; // OPTIMIZATION
-                    
-                    for (let l = -l_max; l <= l_max; l++) {
-                        if (h === 0 && k === 0 && l === 0) continue;
-                        if (k === 0) {
-                            if (h < 0) continue;
-                            if (h === 0 && l <= 0) continue;
-                        }
-                        const inv_d_sq =
-                            (1 / sinBetaSq) *
-                                (h * h / (a * a) +
-                                l * l / (c * c) -
-                                2 * h * l * cosBeta / (a * c)) +
-                            k_term; // Use pre-calculated k_term
+                    for (let k = 0; k <= k_max; k++) {
+                        const hk_term = h_term + (k * k) / (b * b);
+                        if (hk_term > q_max_limit) break; 
                         
-                        processReflection(h, k, l, inv_d_sq);
+                        for (let l = 0; l <= l_max; l++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
+                            const inv_d_sq = hk_term + (l * l) / (c * c);
+                            processReflection(h, k, l, inv_d_sq);
+                        }
                     }
                 }
-            }
-            break;
-    }
+                break;
 
-    // ... (rest of the function for deduplication is unchanged) ...
-    const uniqueReflections = [];
-    const tolerance = 1e-4;
-    if (reflections.length > 0) {
-        reflections.sort((a, b) => a.tth - b.tth);
-        uniqueReflections.push(reflections[0]);
-        for (let i = 1; i < reflections.length; i++) {
-            if (Math.abs(reflections[i].tth - uniqueReflections[uniqueReflections.length - 1].tth) > tolerance) {
-                uniqueReflections.push(reflections[i]);
+            case 'monoclinic':
+                const sinBeta = Math.sin(beta * Math.PI / 180);
+                const cosBeta = Math.cos(beta * Math.PI / 180);
+                const sinBetaSq = sinBeta * sinBeta;
+                if (sinBetaSq < 1e-6) return []; // Invalid cell
+
+                // --- OPTIMIZATION: Pre-calculate reciprocal parameters ---
+                const a_star_sq = 1 / (a * a * sinBetaSq);
+                const b_star_sq = 1 / (b * b);
+                const c_star_sq = 1 / (c * c * sinBetaSq);
+                // This is the coefficient for the h*l term (q = ... - h*l*ac_star_term + ...)
+                const ac_star_term = 2 * cosBeta / (a * c * sinBetaSq); 
+                // ---
+
+                for (let h = -h_max; h <= h_max; h++) {
+                    const h_term = h * h * a_star_sq;
+                    const h_l_coeff = h * ac_star_term; // (h * ac_star_term)
+                    
+                    // --- OPTIMIZATION 1: Check min q for this 'h' (at k=0) ---
+                    // Vertex of the parabola q(l) = (c_star_sq * l^2) - (h_l_coeff * l) + h_term
+                    const l_vertex_h_only = (c_star_sq !== 0) ? h_l_coeff / (2 * c_star_sq) : 0;
+                    const q_min_for_h = (c_star_sq * l_vertex_h_only * l_vertex_h_only) - (h_l_coeff * l_vertex_h_only) + h_term;
+                    
+                    if (q_min_for_h > q_max_limit) {
+                        continue; // Skip this 'h' entirely
+                    }
+                    // ---
+                    
+                    for (let k = 0; k <= k_max; k++) {
+                        const k_term = (k * k) * b_star_sq;
+                        const hk_term = h_term + k_term; // This is the q-value for l=0
+
+                        // --- OPTIMIZATION 2: Check min q for this (h, k) ---
+                        // Vertex of the parabola q(l) = (c_star_sq * l^2) - (h_l_coeff * l) + hk_term
+                        const l_vertex = l_vertex_h_only; // Vertex l-coordinate is independent of k
+                        const q_min_for_hk = (c_star_sq * l_vertex * l_vertex) - (h_l_coeff * l_vertex) + hk_term;
+                        
+                        if (q_min_for_hk > q_max_limit) {
+                            // If k=0 failed, all k>0 will also fail for this h.
+                            if (k === 0) break; 
+                            // If k>0 failed, skip to the next k.
+                            else continue; 
+                        }
+                        // ---
+
+                        for (let l = -l_max; l <= l_max; l++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
+                            // Uniqueness condition for k=0 plane
+                            if (k === 0) {
+                                if (h < 0) continue;
+                                if (h === 0 && l <= 0) continue;
+                            }
+                            
+                            // Calculate q using the pre-calculated terms
+                            const inv_d_sq = (c_star_sq * l * l) - (h_l_coeff * l) + hk_term;
+                            
+                            processReflection(h, k, l, inv_d_sq);
+                        }
+                    }
+                }
+                break;
+        }
+
+        // De-duplicate reflections with very similar tth values
+        const uniqueReflections = [];
+        const tolerance = 1e-4; // tth tolerance for uniqueness
+        if (reflections.length > 0) {
+            reflections.sort((a, b) => a.tth - b.tth);
+            uniqueReflections.push(reflections[0]);
+            for (let i = 1; i < reflections.length; i++) {
+                if (Math.abs(reflections[i].tth - uniqueReflections[uniqueReflections.length - 1].tth) > tolerance) {
+                    uniqueReflections.push(reflections[i]);
+                }
             }
         }
+        return uniqueReflections;
     }
-    return uniqueReflections;
-}
-
 
 
 /**
@@ -2285,8 +2333,7 @@ function getReflectionZone(h, k, l) {
         return filteredSolutions.slice(0, 50);
     };
 
-
-const startIndexing = () => {
+    const startIndexing = () => {
     if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
     if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", "error"); return; }
@@ -2342,9 +2389,16 @@ const startIndexing = () => {
 
             } else if (type === 'solution') {
                 solutions.push(payload);
+
+                // depuis 25 oct: Call the dynamic pruning function ---
+                pruneSolutions(); 
+               
+
                 if (solutions.length === 1) {
                     ui.solutionsLed.className = 'led-indicator green';
                 }
+                
+                // These functions will now run on the potentially pruned list
                 sortSolutions(); 
                 const selectedSystems = Array.from(ui.systemCheckboxes)
                                              .filter(cb => cb.checked)
@@ -3872,63 +3926,149 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     // --- CORE REFINEMENT AND ANALYSIS FUNCTIONS ---
 
     const generateHKL_for_worker = (cell) => {
-    const { system, a, b, c, beta } = cell;
-    const reflections = [];
-    const MAX_REFLECTIONS_LIMIT = 50000;
-    const q_max_limit = q_max * 1.05; // Use the global q_max from the worker's scope
-    const h_max = Math.ceil((a || 0) / d_min);
-    const k_max = Math.ceil((b || a || 0) / d_min);
-    const l_max = Math.ceil((c || a || 0) / d_min);
+        const { system } = cell;
+        const reflections = [];
+        const MAX_REFLECTIONS_LIMIT = 50000;
+        const q_max_limit = q_max * 1.05; // Use the global q_max from the worker's scope
+        
+        // --- OPTIMIZED MONOCLINIC PATH ---
+        if (system === 'monoclinic') {
+            const { a, b, c, beta } = cell;
+            if (!a || !b || !c || !beta) return []; // Safety check
+            
+            const h_max = Math.ceil(a / d_min) + 1;
+            const k_max = Math.ceil(b / d_min) + 1;
+            const l_max = Math.ceil(c / d_min) + 1;
 
-    for (let h = -h_max; h <= h_max; h++) {
-        for (let k = 0; k <= k_max; k++) { // k from 0
-            for (let l = -l_max; l <= l_max; l++) {
-               
-               if (reflections.length > MAX_REFLECTIONS_LIMIT) {
+            const sinBeta = Math.sin(beta * Math.PI / 180);
+            const cosBeta = Math.cos(beta * Math.PI / 180);
+            const sinBetaSq = sinBeta * sinBeta;
+            
+            if (sinBetaSq < 1e-6) return []; // Invalid cell
+
+            const a_star_sq = 1 / (a * a * sinBetaSq);
+            const b_star_sq = 1 / (b * b);
+            const c_star_sq = 1 / (c * c * sinBetaSq);
+            const ac_star_term = 2 * cosBeta / (a * c * sinBetaSq); 
+
+            for (let h = -h_max; h <= h_max; h++) {
+                const h_term = h * h * a_star_sq;
+                const h_l_coeff = h * ac_star_term;
+                
+                // --- Optimization 1: Check min q for this 'h' (at k=0) ---
+                const l_vertex_h_only = (c_star_sq !== 0) ? h_l_coeff / (2 * c_star_sq) : 0;
+                const q_min_for_h = (c_star_sq * l_vertex_h_only * l_vertex_h_only) - (h_l_coeff * l_vertex_h_only) + h_term;
+                
+                if (q_min_for_h > q_max_limit) {
+                    continue; // Skip this 'h' entirely
+                }
+
+                for (let k = 0; k <= k_max; k++) {
+                    if (reflections.length > MAX_REFLECTIONS_LIMIT) {
                          console.warn(`[Worker] HKL generation limit (${MAX_REFLECTIONS_LIMIT}) reached for cell. Results may be incomplete.`);
-                         h = h_max + 1; // Break outer loops
-                         k = k_max + 1;
-                         l = l_max + 1;
+                         h = h_max + 1; k = k_max + 1; // Break outer loops
                          continue;
                     }
-               
-                if (h === 0 && k === 0 && l === 0) continue;
 
-                // Add  filter for monoclinic
-                if (system === 'monoclinic' && k === 0) {
-                    if (h < 0) continue;
-                    if (h === 0 && l <= 0) continue;
-                }
+                    const k_term = k * k * b_star_sq;
+                    const hk_term = h_term + k_term;
+                    
+                    // --- Optimization 2: Check min q for this (h, k) ---
+                    const l_vertex = l_vertex_h_only;
+                    const q_min_for_hk = (c_star_sq * l_vertex * l_vertex) - (h_l_coeff * l_vertex) + hk_term;
 
-                let q_calc = 0;
-                switch (system) {
-                    case 'cubic':
-                        q_calc = (h * h + k * k + l * l) / (a * a);
-                        break;
-                    case 'tetragonal':
-                        q_calc = (h * h + k * k) / (a * a) + (l * l) / (c * c);
-                        break;
-                    case 'hexagonal':
-                        q_calc = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
-                        break;
-                    case 'orthorhombic':
-                        q_calc = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c);
-                        break;
-                    case 'monoclinic':
-                        const sinBeta = Math.sin(beta * Math.PI / 180);
-                        const cosBeta = Math.cos(beta * Math.PI / 180);
-                        q_calc = (1 / (sinBeta * sinBeta)) * ((h * h) / (a * a) + (l * l) / (c * c) - (2 * h * l * cosBeta) / (a * c)) + (k * k) / (b * b);
-                        break;
-                }
-                if (q_calc > 0 && q_calc <= q_max_limit) {
-                    reflections.push({ q: q_calc, h, k, l });
+                    if (q_min_for_hk > q_max_limit) {
+                        if (k === 0) break; // Break k-loop, k>0 will also fail
+                        else continue; // Continue k-loop
+                    }
+
+                    for (let l = -l_max; l <= l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        // Enforce uniqueness
+                        if (k === 0) {
+                            if (h < 0) continue;
+                            if (h === 0 && l <= 0) continue;
+                        }
+
+                        const q_calc = (c_star_sq * l * l) - (h_l_coeff * l) + hk_term;
+
+                        if (q_calc > 0 && q_calc <= q_max_limit) {
+                            reflections.push({ q: q_calc, h, k, l });
+                        }
+                    }
                 }
             }
-        }
-    }
-    // Sort by q-value for efficient searching; binary search (?)
-    return reflections.sort((a, b) => a.q - b.q);
-};
+        
+        } else {
+            // --- ORIGINAL PATH FOR OTHER SYSTEMS ---
+            const { a } = cell;
+            const b = cell.b ?? cell.a;
+            const c = cell.c ?? cell.a;
+            if (!a || !b || !c) return []; // Safety check
+
+            const h_max = Math.ceil(a / d_min) + 1;
+            const k_max = Math.ceil(b / d_min) + 1;
+            const l_max = Math.ceil(c / d_min) + 1;
+
+            for (let h = -h_max; h <= h_max; h++) {
+                // Simple optimization for non-monoclinic
+                let h_term = 0;
+                switch(system) {
+                    case 'cubic': h_term = (h*h) / (a*a); break;
+                    case 'tetragonal': h_term = (h*h) / (a*a); break;
+                    case 'hexagonal': h_term = (4/3) * (h*h) / (a*a); break;
+                    case 'orthorhombic': h_term = (h*h) / (a*a); break;
+                }
+                if (h_term > q_max_limit) continue;
+
+                for (let k = 0; k <= k_max; k++) {
+                    // Simple optimization
+                    let hk_term = 0;
+                    switch(system) {
+                        case 'cubic': hk_term = (h*h + k*k) / (a*a); break;
+                        case 'tetragonal': hk_term = (h*h + k*k) / (a*a); break;
+                        case 'hexagonal': hk_term = (4/3) * (h*h + h*k + k*k) / (a*a); break;
+                        case 'orthorhombic': hk_term = (h*h) / (a*a) + (k*k) / (b*b); break;
+                    }
+                    if (hk_term > q_max_limit) {
+                        if (k === 0) break; else continue;
+                    }
+                    
+                    if (reflections.length > MAX_REFLECTIONS_LIMIT) {
+                         console.warn(`[Worker] HKL generation limit (${MAX_REFLECTIONS_LIMIT}) reached for cell. Results may be incomplete.`);
+                         h = h_max + 1; k = k_max + 1; // Break outer loops
+                         continue;
+                    }
+
+                    for (let l = -l_max; l <= l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+
+                        let q_calc = 0;
+                        switch (system) {
+                            case 'cubic':
+                                q_calc = (h * h + k * k + l * l) / (a * a);
+                                break;
+                            case 'tetragonal':
+                                q_calc = (h * h + k * k) / (a * a) + (l * l) / (c * c);
+                                break;
+                            case 'hexagonal':
+                                q_calc = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
+                                break;
+                            case 'orthorhombic':
+                                q_calc = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c);
+                                break;
+                        }
+                        if (q_calc > 0 && q_calc <= q_max_limit) {
+                            reflections.push({ q: q_calc, h, k, l });
+                        }
+                    }
+                }
+            }
+        } // --- End of if/else(monoclinic) ---
+        
+        // Sort by q-value for efficient searching
+        return reflections.sort((a, b) => a.q - b.q);
+    };
 
     const getQcalc = (hkl, cell) => {
         const [h, k, l] = hkl;
