@@ -2022,12 +2022,14 @@ function getReflectionZone(h, k, l) {
         updateAllMarkers();
     };
 
-    ui.tthMinSlider.addEventListener('input', () => {
+
+ui.tthMinSlider.addEventListener('input', () => {
         let minVal = parseFloat(ui.tthMinSlider.value);
         let maxVal = parseFloat(ui.tthMaxSlider.value);
         if (minVal >= maxVal) { minVal = maxVal - parseFloat(ui.tthMinSlider.step); ui.tthMinSlider.value = minVal; }
         ui.tthMinValue.textContent = minVal.toFixed(2);
         updatePlotRange();
+        debouncedFindPeaks(); // 
     });
      ui.tthMaxSlider.addEventListener('input', () => {
         let minVal = parseFloat(ui.tthMinSlider.value);
@@ -2035,8 +2037,9 @@ function getReflectionZone(h, k, l) {
         if (maxVal <= minVal) { maxVal = minVal + parseFloat(ui.tthMaxSlider.step); ui.tthMaxSlider.value = maxVal; }
         ui.tthMaxValue.textContent = maxVal.toFixed(2);
         updatePlotRange();
+        debouncedFindPeaks(); // v114
     });
-    
+
     ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textContent = ui.ballRadiusSlider.value; debouncedFindPeaks(); });
     ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = ui.smoothingWidthSlider.value; debouncedFindPeaks(); });
     ui.peakThresholdSlider.addEventListener('input', () => { const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)); ui.peakThresholdValue.textContent = value.toFixed(1); debouncedFindPeaks(); });
@@ -2334,6 +2337,11 @@ function getReflectionZone(h, k, l) {
     };
 
     const startIndexing = () => {
+
+        const tthMinVal = parseFloat(ui.tthMinSlider.value);
+    const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+    const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+
     if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
     if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", "error"); return; }
@@ -2361,7 +2369,7 @@ function getReflectionZone(h, k, l) {
     showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
 
     const baseParams = {
-        peaks: pickedPeaks,
+        peaks: filteredPeaks,
         wavelength: parseFloat(ui.wavelength.value), // This is Ka1
         tth_error: parseFloat(ui.tthError.value),
         max_volume: parseFloat(ui.maxVolume.value),
@@ -3218,6 +3226,16 @@ const generatePDFReport = async () => {
             showStatus("No solutions found to generate a report.", 'info');
             return;
         }
+
+        const tthMinVal = parseFloat(ui.tthMinSlider.value);
+        const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+        const reportPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+
+        if (reportPeaks.length === 0) {
+             showStatus("No peaks selected in the current 2-theta range for the report.", 'info');
+             return;
+        }
+
         ui.reportButton.textContent = 'Generating...';
         ui.reportButton.disabled = true;
         document.body.style.cursor = 'wait';
@@ -3343,7 +3361,7 @@ const generatePDFReport = async () => {
             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
             doc.text('Sys', margin, yPos);
             // Get N from the *first* solution, or fall back to peak count
-            const first_sol_n_20 = (displayedSolutions.length > 0 && displayedSolutions[0].n_20) ? displayedSolutions[0].n_20 : Math.min(20, pickedPeaks.length);
+            const first_sol_n_20 = (displayedSolutions.length > 0 && displayedSolutions[0].n_20) ? displayedSolutions[0].n_20 : Math.min(20, reportPeaks.length);
             doc.text(`M(${first_sol_n_20})`, margin + 15, yPos);
             doc.text(`F(${first_sol_n_20})`, margin + 30, yPos);
             doc.text('Volume(A^3)', margin + 45, yPos);
@@ -3410,13 +3428,13 @@ const generatePDFReport = async () => {
                 }
                
              //      yPos += 4; // Spacing after parameters
-                              const n_20_pdf = sol.n_20 || Math.min(20, pickedPeaks.length);
+                              const n_20_pdf = sol.n_20 || Math.min(20, reportPeaks.length);
                 const m_20_str = `M(${n_20_pdf}) = ${sol.m20.toFixed(2)}`;
                 const f_20_str = `F(${n_20_pdf}) = ${(sol.fN_20 || 0).toFixed(2)}`;
                 doc.text(`${m_20_str}, ${f_20_str}`, margin, yPos); 
                 yPos += 4;
 
-                const n_all_pdf = sol.n_all || pickedPeaks.length;
+                const n_all_pdf = sol.n_all || reportPeaks.length;
                 const m_all_str = `M(${n_all_pdf}) = ${(sol.m_all || 0).toFixed(2)}`;
                 const f_all_str = `F(${n_all_pdf}) = ${(sol.fN_all || 0).toFixed(2)}`;
                 doc.text(`${m_all_str}, ${f_all_str}`, margin, yPos); 
@@ -3621,7 +3639,7 @@ const generatePDFReport = async () => {
                 }
     
                 const ambiguousHkls = sol.analysis.ambiguousHkls || new Set();
-                const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+                const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
                 const reportLines = []; 
                 const assignedHkls = new Set();
     
@@ -5264,6 +5282,8 @@ const findTransformedSolutions = (initialSolutions) => {
 *** 25 oct 2025
 - added F(N) in the report file
 - sorted monoclinic if M is whithin 2%
+*** 26 oct 2025
+- use pickedPeaks, use only the peaks in the 2theta limits
 */
 
 </script>
