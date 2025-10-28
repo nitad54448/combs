@@ -1048,6 +1048,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         rankedSpaceGroups: rankedSpaceGroups.slice(0, 20),
         detectedExtinctions: detectedExtinctions,
         centeringViolations: centeringResult.violations,
+        centeringViolationDetails: centeringResult.violationDetails,
         ambiguousHkls: ambiguousHkls
     };
 }
@@ -1055,7 +1056,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 
 /*
  * Determines the most likely lattice centering based on observed reflections.
- * (This function is a helper for analyzeSystematicAbsences)
+ * RETURNS DETAILS OF VIOLATING REFLECTIONS (up to 2 per type).
  */
 function determineCentering(indexed_hkls, system) {
     const centeringTests = {
@@ -1067,90 +1068,71 @@ function determineCentering(indexed_hkls, system) {
         'C': { name: 'C-centered (C)', forbidden: (h, k, l) => (h + k) % 2 !== 0 }
     };
 
-    // --- *** ADD THIS: Define valid Bravais centerings per system *** ---
     const validBravaisCenterings = {
         'cubic': ['P', 'I', 'F'],
         'tetragonal': ['P', 'I'],
         'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'],
-        'hexagonal': ['P'], // Rhombohedral R handled separately if needed
-        'monoclinic': ['P', 'C'], // Standard setting, others possible but less common to test directly
-        // 'triclinic': ['P'] // Not indexed here
+        'hexagonal': ['P'], // Rhombohedral R handled separately if needed,... à revoir 
+        'monoclinic': ['P', 'C'], // Standard setting
     };
-    // --- *** END ADD *** ---
 
-
-    // Add rhombohedral for hexagonal/trigonal systems if implemented later
-    // if (system === 'hexagonal' || system === 'trigonal') {
-    //     centeringTests['R'] = { name: 'Rhombohedral (R, obverse)', forbidden: (h, k, l) => (-h + k + l) % 3 !== 0 };
-    //     validBravaisCenterings['hexagonal'].push('R');
-    // }
-
-    // Count violations: observed reflections that should be absent
     const violations = {};
+    const violationDetails = {}; // <-- NEW: Store details here
+    const MAX_DETAILS_TO_STORE = 2; // <-- Limit details stored
+
     for (const [key, test] of Object.entries(centeringTests)) {
-        // --- *** MODIFY THIS: Only count violations for relevant centerings *** ---
-        const allowedForSystem = validBravaisCenterings[system] || ['P']; // Default to P if system unknown
+        const allowedForSystem = validBravaisCenterings[system] || ['P'];
         if (allowedForSystem.includes(key)) {
-            violations[key] = indexed_hkls.filter(({h, k, l}) => 
-                test.forbidden(h, k, l)
-            ).length;
+            const violatingPeaks = indexed_hkls.filter(({h, k, l}) =>
+                test.forbidden(Math.round(h), Math.round(k), Math.round(l)) // Use rounded indices for integer checks
+            );
+            violations[key] = violatingPeaks.length;
+
+            // <-- NEW: Store details if count is low -->
+            if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) {
+                violationDetails[key] = violatingPeaks.slice(0, MAX_DETAILS_TO_STORE).map(p => ({
+                    h: p.h, k: p.k, l: p.l, tth: p.tth // Store measured tth
+                }));
+            }
+            // <-- END NEW -->
         }
-        // --- *** END MODIFY *** ---
     }
 
-    // --- *** MODIFY THIS: Find min violations *among valid centerings* *** ---
-    // If violations object is empty (e.g., system not recognized), default min to 0
     const minViolations = Object.keys(violations).length > 0 ? Math.min(...Object.values(violations)) : 0;
-    
-    // Filter plausible keys BOTH by min violations AND by valid Bravais types
-    let plausible = Object.keys(violations).filter(key => 
+
+    let plausible = Object.keys(violations).filter(key =>
         violations[key] === minViolations && (validBravaisCenterings[system] || ['P']).includes(key)
     );
-    // Ensure plausible always has at least 'P' if P had min violations or if no other centering worked
+
      if (plausible.length === 0 && violations['P'] === minViolations) {
         plausible = ['P'];
      } else if (plausible.length === 0) {
-        // Fallback if somehow nothing is plausible (shouldn't happen with P)
-        plausible = ['P'];
+        plausible = ['P']; // Fallback
      }
 
-    // --- *** END MODIFY *** ---
-
-
-    // Prioritize special centerings over primitive (among plausible & valid options)
     let finalCenterings;
-    if (plausible.includes('F')) {
-        finalCenterings = ['F'];
-    } else if (plausible.includes('I')) {
-        finalCenterings = ['I'];
-    // } else if (plausible.includes('R')) { // Rhombohedral handling if added
-    //     finalCenterings = ['R'];
-    } else {
+    if (plausible.includes('F')) finalCenterings = ['F'];
+    else if (plausible.includes('I')) finalCenterings = ['I'];
+    else {
         const specialCenterings = plausible.filter(c => ['A', 'B', 'C'].includes(c));
-        
-        // If special centerings are plausible, list them. Also list 'P' if it was equally plausible.
         finalCenterings = specialCenterings.length > 0 ? specialCenterings : ['P'];
         if (plausible.includes('P') && !finalCenterings.includes('P') && specialCenterings.length > 0) {
-             finalCenterings.push('P'); // e.g. results in ['C', 'P'] if both are minimal and valid
+             finalCenterings.push('P');
         }
-         // Ensure P is always the fallback if nothing else worked
          if (finalCenterings.length === 0) finalCenterings = ['P'];
     }
-    
-    // Filter finalCenterings again just to be absolutely sure only valid ones remain
+
     finalCenterings = finalCenterings.filter(c => (validBravaisCenterings[system] || ['P']).includes(c));
-    // If filtering left it empty, default back to P
     if (finalCenterings.length === 0) finalCenterings = ['P'];
 
-
     return {
-        plausibleCenterings: finalCenterings, // This is now a list filtered by Bravais rules
-        description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '), // Added fallback for safety
-        violations: violations, // Show violations for all tested centerings
+        plausibleCenterings: finalCenterings,
+        description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '),
+        violations: violations,
+        violationDetails: violationDetails, // <-- NEW: Return details
         minViolations: minViolations
     };
 }
-
 
 /**
  * Detects possible systematic extinctions by checking observed reflections
@@ -3617,6 +3599,37 @@ const generatePDFReport = async () => {
                          const violText = Object.entries(sol.analysis.centeringViolations).sort(([,a], [,b]) => a - b).map(([key, val]) => `${key}:${val}`).join(', ');
                          doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(violText, margin, yPos);
                          yPos += 5;
+                         if (sol.analysis.centeringViolations && sol.analysis.centeringViolationDetails) {
+                         doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.SMALL); // Smaller, italic font for details
+                         let detailsYOffset = 0; // Track y position adjustments
+
+                         for (const type of ['I', 'F', 'A', 'B', 'C']) {
+                             const count = sol.analysis.centeringViolations[type];
+                             const details = sol.analysis.centeringViolationDetails[type];
+
+                             if ((count === 1 || count === 2) && details && details.length > 0) {
+                                 let detailText = `${type} violation${count > 1 ? 's' : ''}: `;
+                                 detailText += details.map(d =>
+                                     `(${d.h},${d.k},${d.l}) at ${d.tth.toFixed(3)}°`
+                                 ).join('; ');
+
+                                 // Check for page break BEFORE printing the detail line
+                                 if (yPos + detailsYOffset > 285) { // Use a slightly smaller threshold
+                                     doc.addPage();
+                                     yPos = 20;
+                                     detailsYOffset = 0; // Reset offset for the new page
+                                 }
+                                 doc.text(detailText, margin + 5, yPos + detailsYOffset); // Indent slightly
+                                 detailsYOffset += 3.5; // Move down for the next potential detail line
+                             }
+                         }
+                         yPos += detailsYOffset; // Apply the total offset used for details
+                         doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Reset font
+                     }
+                         
+                         
+                         
+                         yPos += 5;
                      }
                 } 
                 yPos += 4; 
@@ -4216,9 +4229,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             case 'monoclinic': return `${std.system}_${std.volume.toFixed(2)}_${std.beta.toFixed(2)}`;
         }
     };
-    
-    // --- ADD THESE 3 HELPER FUNCTIONS FOR ROBUST LS SOLVER ---
-    
+        
     // Helper: Performs LU decomposition with partial pivoting
     const luDecomposition = (matrix) => {
         const n = matrix.length;
