@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HKL Pattern Simulator</title>
+   
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+   
+   
+   <style>
+         :root {
+            --dark-bg: #111827; --medium-bg: #1f2937; --light-bg: #374151;
+            --border-color: #4b5563; --primary-accent: #1a73e8; --text-light: #e5e7eb;
+            --text-medium: #d1d5db; --text-dark: #9ca3af; --error-red: #dc2626;
+        }
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f9fafb; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        #controls-panel { width: 350px; min-width: 300px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: var(--dark-bg); border-right: 1px solid var(--light-bg); overflow-y: auto; color: var(--text-medium); display: flex; flex-direction: column; z-index: 20;}
+        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color: 0.2s; }
+        #drag-handle:hover, #drag-handle:active { background-color: var(--primary-accent); }
+        #results-area { 
+            flex-grow: 1; 
+            position: relative; 
+            background-color: #ffffff; 
+            min-width: 0; 
+            display: flex; 
+            flex-direction: column; 
+            /* MODIFICATION: Reduced bottom padding from 1.5rem to 0.5rem */
+            padding: 1.5rem 1.5rem 0.5rem 1.5rem; 
+            color: var(--medium-bg); 
+            z-index: 10;
+        }
+        .control-group { margin-bottom: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--light-bg); }
+        .control-group:first-child { border-top: none; padding-top: 0; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-dark); font-size: 0.875rem; }
+        .control-input, .control-select { width: 100%; background-color: var(--light-bg); border: 1px solid var(--border-color); color: var(--text-light); border-radius: 0.35rem; padding: 0.5rem 0.75rem; box-sizing: border-box; }
+        .control-input:focus, .control-select:focus { outline: none; border-color: var(--primary-accent); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
+        .control-input:disabled { background-color: var(--medium-bg); opacity: 0.6; cursor: not-allowed; }
+        .control-input.error { border-color: var(--error-red); }
+        .btn-like { display: flex; align-items: center; justify-content: center; padding: 0.6rem 1rem; border-radius: 0.375rem; font-weight: 600; font-size: 1rem; text-align: center; cursor: pointer; border: none; transition: background-color: 0.2s; }
+        .btn-primary { background-color: var(--primary-accent); color: white; }
+        .btn-primary:hover:not(:disabled) { background-color: #1765cc; }
+        .btn-secondary { background-color: var(--light-bg); color: var(--text-light); border: 1px solid var(--border-color); }
+        .btn-secondary:hover:not(:disabled) { background-color: #4a5568; }
+        .btn:disabled { background-color: var(--border-color); cursor: not-allowed; opacity: 0.7; }
+        .hidden { display: none !important; }
+        .parameter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.75rem; }
+        .parameter-grid .control-input { width: 100%; }
+        
+        /* --- MODIFICATION: Allow flex-grow for footer --- */
+        #hkl-chart-container { 
+            width: 100%; 
+            flex-grow: 1; /* Changed from height: 100% */
+            position: relative; 
+            min-height: 0; /* For flex-grow to work in a flex column */
+        }
+        #placeholder { 
+            width: 100%; 
+            flex-grow: 1; /* Changed from height: 100% */
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            text-align: center; 
+            color: #6b7280;
+        }
+        #placeholder svg { width: 4rem; height: 4rem; margin-bottom: 1rem; }
+        
+        /* --- NEW: Footer Style --- */
+        #app-footer {
+            padding: 8px 0;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-dark);
+            border-top: 1px solid #e5e7eb; /* Light border inside results panel */
+            margin-top: auto; /* Pushes it to the bottom */
+            flex-shrink: 0; /* Don't let it shrink */
+        }
+        
+        /* --- MODIFIED: 2Theta Sliders (to match image layout) --- */
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem; /* Gap between label and box */
+            margin-bottom: 0.75rem;
+            /* REMOVED background, border, padding, etc. This is now a wrapper. */
+        }
+        .slider-group .control-label {
+            margin-bottom: 0;
+            font-size: 0.875rem;
+            color: var(--text-dark); /* MODIFIED: Use standard label color */
+            flex-shrink: 0;
+            min-width: 50px;
+            text-align: left;
+        }
+        
+        /* NEW: The dark box containing the slider */
+        .slider-box {
+            background-color: var(--light-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.35rem;
+            padding: 0.5rem 0.75rem;
+            height: 30px;
+            box-sizing: border-box;
+            
+            flex-grow: 1; /* Box fills remaining space */
+            display: flex;
+            align-items: center;
+        }
+        
+        /* NEW: Wrapper for slider + value (no changes, just context) */
+        .slider-wrapper {
+            position: relative;
+            flex-grow: 1;
+            display: flex; /* Use flex to make input fill space */
+            align-items: center;
+            height: 100%; /* Ensure it has height */
+        }
+
+        input[type="range"].custom-slider {
+            flex-grow: 1; /* Slider input fills wrapper */
+            /* --- MODIFICATION: Hide the track --- */
+            height: 4px; 
+            background: transparent; /* Make track invisible */
+            border-radius: 2px;
+            appearance: none; -webkit-appearance: none; outline: none;
+            margin: 0;
+            width: 100%; /* Explicitly set width */
+        }
+        input[type="range"].custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 16px; height: 16px; 
+            /* --- MODIFICATION: Match image thumb --- */
+            background: #ffffff; /* Pure white fill */
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid var(--primary-accent); /* Thicker blue border */
+            /* Add z-index to ensure thumb is on top of value */
+            position: relative;
+            z-index: 10;
+        }
+        input[type="range"].custom-slider::-moz-range-thumb {
+            width: 16px; height: 16px;
+            /* --- MODIFICATION: Match image thumb --- */
+            background: #ffffff; /* Pure white fill */
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid var(--primary-accent); /* Thicker blue border */
+            position: relative;
+            z-index: 10;
+        }
+        
+        .slider-value-display {
+            /* Position in middle of wrapper */
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            
+            font-size: 0.9rem;
+            color: var(--text-light);
+            text-align: center; /* Center text */
+            min-width: 45px; /* Keep min-width */
+            
+            /* Make it unclickable so slider works */
+            pointer-events: none;
+            z-index: 5; /* Behind thumb, above track */
+        }
+        /* --- END MODIFICATION --- */
+        
+        /* Checkbox style */
+        .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-medium); cursor: pointer; margin-top: 0.75rem;}
+        .checkbox-label input:disabled + span { opacity: 0.5; cursor: not-allowed; }
+        .checkbox-label input:disabled { cursor: not-allowed; }
+        input[type="checkbox"] { accent-color: var(--primary-accent); transform: scale(1.1); }
+
+        .btn-like.file-label {
+            display: block; /* Make it take full width like inputs */
+            width: 100%; /* Explicitly set to 100% of parent */
+            max-width: 100%; /* Ensure it doesn't overflow */
+            text-align: left; /* Keep text aligned left */
+            box-sizing: border-box; /* Ensure padding is included in width */
+        }
+        
+        #space-group-fields {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem; /* Space between input/select and system display */
+        }
+
+        #space-group-input,
+		#space-group-setting {
+		    flex: 1 1 0;
+		    width: 100%;
+		}
+
+		#wavelength-inputs-container {
+		    display: flex;
+		    gap: 0.5rem;
+		}
+
+		#wavelength-preset,
+		#wavelength {
+		    flex: 1 1 0;       /* each takes half */
+		    min-width: 0;      /* prevent select from expanding */
+		    box-sizing: border-box;
+		}
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+
+            <div class="control-group">
+                 <label for="exp-file-input" class="control-label">Experimental Data (Optional)</label>
+                 <label for="exp-file-input" class="btn-like btn-secondary file-label">
+                     <span id="exp-file-name">Select Data File...</span>
+                 </label>
+                 <input type="file" id="exp-file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf,.xra,.gsa,.dat,.asc">
+            </div>
+
+             <div class="control-group">
+                <label class="control-label">Space Group</label> <div id="space-group-fields">
+                    <input type="text" id="space-group-input" class="control-input" placeholder="e.g., 62 or Pnma">
+                    <select id="space-group-setting" class="control-select" disabled>
+                         <option value="-1">Default</option>
+                    </select>
+                </div>
+                <div style="margin-top: 8px; font-size: 0.8rem;">
+                    <span class="control-label" style="display: inline;">Crystal System:</span>
+                    <span id="crystal-system-display" style="color: var(--text-light); font-weight: 500;">-</span>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label for="wavelength-preset" class="control-label">Wavelength (Å)</label>
+                 <div id="wavelength-inputs-container">
+                    <select id="wavelength-preset" class="control-select">
+                        <option value="Cu">Cu Kα (avg)</option>
+                        <option value="Mo">Mo Kα (avg)</option>
+                        <option value="Co">Co Kα (avg)</option>
+                        <option value="Fe">Fe Kα (avg)</option>
+                        <option value="Cr">Cr Kα (avg)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <input type="number" id="wavelength" value="1.54184" step="0.00001" min="0.1" class="control-input">
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="plot-ka2-checkbox">
+                    <span>Plot Kα1 and Kα2 separately</span>
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Unit Cell Parameters</label>
+                <div class="parameter-grid">
+                    <div><label for="cell-a" class="control-label" style="font-size: 0.75rem;">a (Å)</label><input type="number" id="cell-a" value="5.0" step="0.01" min="1" class="control-input" disabled></div>
+                    <div><label for="cell-b" class="control-label" style="font-size: 0.75rem;">b (Å)</label><input type="number" id="cell-b" value="5.0" step="0.01" min="1" class="control-input" disabled></div>
+                    <div><label for="cell-c" class="control-label" style="font-size: 0.75rem;">c (Å)</label><input type="number" id="cell-c" value="5.0" step="0.01" min="1" class="control-input" disabled></div>
+                    <div><label for="cell-alpha" class="control-label" style="font-size: 0.75rem;">α (°)</label><input type="number" id="cell-alpha" value="90.0" step="0.1" min="30" max="150" class="control-input" disabled></div>
+                    <div><label for="cell-beta" class="control-label" style="font-size: 0.75rem;">β (°)</label><input type="number" id="cell-beta" value="90.0" step="0.1" min="30" max="150" class="control-input" disabled></div>
+                    <div><label for="cell-gamma" class="control-label" style="font-size: 0.75rem;">γ (°)</label><input type="number" id="cell-gamma" value="90.0" step="0.1" min="30" max="150" class="control-input" disabled></div>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label class="control-label" style="margin-bottom: 0.75rem;">2θ Range</label> 
+                
+                <div class="slider-group">
+                    <label for="min-2theta-slider" class="control-label">2θ Min</label>
+                    <!-- NEW: This 'slider-box' is the dark rounded rectangle -->
+                    <div class="slider-box">
+                        <div class="slider-wrapper">
+                            <input type="range" id="min-2theta-slider" class="custom-slider" min="0" max="170" value="5" step="0.1">
+                            <span id="min-2theta-value" class="slider-value-display">5.00</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="slider-group">
+                    <label for="max-2theta-slider" class="control-label">2θ Max</label>
+                    <!-- NEW: This 'slider-box' is the dark rounded rectangle -->
+                    <div class="slider-box">
+                        <div class="slider-wrapper">
+                            <input type="range" id="max-2theta-slider" class="custom-slider" min="5" max="180" value="90" step="0.1">
+                            <span id="max-2theta-value" class="slider-value-display">90.00</span>
+                        </div>
+                    </div>
+                </div>
+                 <input type="number" id="min-2theta" class="hidden" value="5">
+                 <input type="number" id="max-2theta" class="hidden" value="90">
+            </div>
+            
+            <div class="control-group" style="margin-top: auto;">
+                <button id="save-hkl-button" class="btn btn-primary btn-like" style="width: 100%;" disabled>Enter Valid Space Group</button>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+             <div id="placeholder">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <h2 style="font-size: 1.5rem; font-weight: 600;">Setup Simulation</h2>
+                <p>Select a Space Group and enter parameters to start.</p>
+            </div>
+            <div id="hkl-chart-container" class="hidden">
+                <canvas id="hkl-chart"></canvas>
+            </div>
+            
+            <!-- NEW FOOTER ELEMENT -->
+            <footer id="app-footer">
+                IndexMan, version 29 oct 2025
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let spaceGroupData = null;
+            let currentSpaceGroup = null;
+            let currentHKLList_ka1 = []; // Store calculated Ka1 reflections
+            let currentHKLList_ka2 = []; // Store calculated Ka2 reflections
+            let hklChart = null;
+            let experimentalData = { tth: [], intensity: [] };
+
+            const uiElements = {
+                sgInput: document.getElementById('space-group-input'), systemDisplay: document.getElementById('crystal-system-display'), settingSelect: document.getElementById('space-group-setting'),
+                cellA: document.getElementById('cell-a'), cellB: document.getElementById('cell-b'), cellC: document.getElementById('cell-c'),
+                cellAlpha: document.getElementById('cell-alpha'), cellBeta: document.getElementById('cell-beta'), cellGamma: document.getElementById('cell-gamma'),
+                wavelengthPreset: document.getElementById('wavelength-preset'), wavelength: document.getElementById('wavelength'),
+                plotKa2Checkbox: document.getElementById('plot-ka2-checkbox'),
+                min2ThetaSlider: document.getElementById('min-2theta-slider'), max2ThetaSlider: document.getElementById('max-2theta-slider'),
+                min2ThetaValue: document.getElementById('min-2theta-value'), max2ThetaValue: document.getElementById('max-2theta-value'),
+                min2ThetaNum: document.getElementById('min-2theta'), max2ThetaNum: document.getElementById('max-2theta'),
+                saveButton: document.getElementById('save-hkl-button'),
+                expFileInput: document.getElementById('exp-file-input'), expFileName: document.getElementById('exp-file-name'),
+                chartCanvas: document.getElementById('hkl-chart'), chartContainer: document.getElementById('hkl-chart-container'),
+                placeholder: document.getElementById('placeholder')
+            };
+            
+            const WAVELENGTH_PRESETS = {
+                'Cu': { ka1: 1.54056, ka2: 1.54439, ka_avg: 1.54184 },
+                'Mo': { ka1: 0.70930, ka2: 0.71359, ka_avg: 0.71073 },
+                'Co': { ka1: 1.78897, ka2: 1.79285, ka_avg: 1.79026 },
+                'Fe': { ka1: 1.93604, ka2: 1.93998, ka_avg: 1.93735 },
+                'Cr': { ka1: 2.28970, ka2: 2.29361, ka_avg: 2.29092 },
+                'custom': { ka1: null, ka2: null, ka_avg: null } // User defined, treated as monochromatic
+            };
+
+            const debounce = (func, delay) => { let timeout; return function(...args) { const context = this; clearTimeout(timeout); timeout = setTimeout(() => func.apply(context, args), delay); }; };
+
+            async function loadSpaceGroupData() { try { const response = await fetch('space_groups_all_settings.json'); if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`); spaceGroupData = await response.json(); console.log("Space group data loaded."); } catch (error) { console.error("Could not load space group data:", error); alert("Error: Could not load space group definitions."); uiElements.sgInput.disabled = true; uiElements.sgInput.placeholder = "Error loading definitions"; } }
+
+            function findSpaceGroup(input) { if (!spaceGroupData || !input) return null; const searchTerm = input.trim().toLowerCase().replace(/\s+/g, '').replace('-', ''); if (/^\d+$/.test(searchTerm)) { const sgObject = spaceGroupData.space_groups[searchTerm]; if (sgObject) return sgObject; } for (const sgKey in spaceGroupData.space_groups) { const sg = spaceGroupData.space_groups[sgKey]; const stdSymbolNorm = sg.standard_symbol.toLowerCase().replace(/\s+/g, '').replace('-', ''); if (stdSymbolNorm === searchTerm) return sg; if (sg.settings) { for (const setting of sg.settings) { const settingSymbolNorm = setting.symbol.toLowerCase().replace(/\s+/g, '').replace('-', ''); if (settingSymbolNorm === searchTerm) return sg; } } } return null; }
+
+            function updateParameterInputs(system) {
+                const inputs = { a: uiElements.cellA, b: uiElements.cellB, c: uiElements.cellC, alpha: uiElements.cellAlpha, beta: uiElements.cellBeta, gamma: uiElements.cellGamma };
+                Object.values(inputs).forEach(input => {
+                    input.removeEventListener('input', debouncedCalculate);
+                    input.disabled = true; input.readOnly = true; input.style.opacity = 0.6;
+                    input.removeAttribute('listener-added');
+                });
+                inputs.alpha.value = 90.0; inputs.beta.value = 90.0; inputs.gamma.value = 90.0;
+
+                const setupListener = (inputElement) => {
+                    if (!inputElement.getAttribute('listener-added')) {
+                        inputElement.addEventListener('input', debouncedCalculate);
+                        inputElement.setAttribute('listener-added', 'true');
+                    }
+                };
+                const enable = (id, readOnly = false) => {
+                    inputs[id].disabled = false; inputs[id].readOnly = readOnly; inputs[id].style.opacity = 1;
+                    if (!readOnly) setupListener(inputs[id]);
+                };
+
+                switch (system) {
+                    case 'cubic':
+                        enable('a');
+                        inputs.a.addEventListener('input', () => {
+                            inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
+                            debouncedCalculate();
+                        });
+                        inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
+                        inputs.a.setAttribute('listener-added', 'true');
+                        break;
+                    case 'hexagonal': case 'trigonal':
+                        enable('a'); enable('c');
+                        inputs.gamma.value = 120.0;
+                        inputs.a.addEventListener('input', () => {
+                            inputs.b.value = inputs.a.value;
+                            debouncedCalculate();
+                        });
+                        inputs.b.value = inputs.a.value;
+                        inputs.a.setAttribute('listener-added', 'true');
+                        setupListener(inputs.c);
+                        break;
+                     case 'tetragonal':
+                        enable('a'); enable('c');
+                        inputs.a.addEventListener('input', () => {
+                            inputs.b.value = inputs.a.value;
+                            debouncedCalculate();
+                        });
+                        inputs.b.value = inputs.a.value;
+                        inputs.a.setAttribute('listener-added', 'true');
+                         setupListener(inputs.c);
+                        break;
+                    case 'orthorhombic':
+                        enable('a'); enable('b'); enable('c');
+                        break;
+                    case 'monoclinic':
+                        enable('a'); enable('b'); enable('c'); enable('beta');
+                        break;
+                    case 'triclinic':
+                        enable('a'); enable('b'); enable('c'); enable('alpha'); enable('beta'); enable('gamma');
+                        break;
+                }
+                
+                 ['a', 'b', 'c', 'alpha', 'beta', 'gamma'].forEach(id => {
+                     if (!inputs[id].disabled && !inputs[id].readOnly && !inputs[id].getAttribute('listener-added')) {
+                         setupListener(inputs[id]);
+                     }
+                 });
+                 Object.values(inputs).forEach(input => { if (input.disabled || input.readOnly) { input.style.opacity = 0.6; }});
+            }
+
+            function updateSettingsDropdown(sg) {
+                uiElements.settingSelect.innerHTML = '';
+                if (sg && sg.settings && sg.settings.length > 0) {
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = "0";
+                    defaultOption.textContent = `Standard: ${sg.settings[0].symbol}` + (sg.settings[0].description ? ` (${sg.settings[0].description})` : '');
+                    uiElements.settingSelect.appendChild(defaultOption);
+                    if (sg.settings.length > 1) {
+                        sg.settings.slice(1).forEach((setting, index) => {
+                            const option = document.createElement('option');
+                            option.value = index + 1;
+                            option.textContent = `${setting.symbol}` + (setting.description ? ` (${setting.description})` : '');
+                            uiElements.settingSelect.appendChild(option);
+                        });
+                        uiElements.settingSelect.disabled = false;
+                    } else {
+                        uiElements.settingSelect.disabled = true;
+                    }
+                } else {
+                    const option = document.createElement('option');
+                    option.value = "-1";
+                    option.textContent = "N/A";
+                    uiElements.settingSelect.appendChild(option);
+                    uiElements.settingSelect.disabled = true;
+                }
+            }
+
+            function getCurrentParameters() {
+                const system = currentSpaceGroup?.crystal_system;
+                const preset = uiElements.wavelengthPreset.value;
+                const plotKa2 = uiElements.plotKa2Checkbox.checked && preset !== 'custom';
+
+                const lambda = plotKa2 && preset !== 'custom' ? WAVELENGTH_PRESETS[preset].ka1 : parseFloat(uiElements.wavelength.value);
+                
+                const params = {
+                    a: parseFloat(uiElements.cellA.value),
+                    b: (system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') ? parseFloat(uiElements.cellA.value) : parseFloat(uiElements.cellB.value),
+                    c: (system === 'cubic') ? parseFloat(uiElements.cellA.value) : parseFloat(uiElements.cellC.value),
+                    alpha: (system === 'triclinic') ? parseFloat(uiElements.cellAlpha.value) : 90.0,
+                    beta: (system === 'monoclinic' || system === 'triclinic') ? parseFloat(uiElements.cellBeta.value) : 90.0,
+                    gamma: (system === 'hexagonal' || system === 'trigonal') ? 120.0 : (system === 'triclinic' ? parseFloat(uiElements.cellGamma.value) : 90.0),
+                    lambda: lambda,
+                    lambda_ka2: plotKa2 && preset !== 'custom' ? WAVELENGTH_PRESETS[preset].ka2 : null,
+                    system: system
+                };
+                
+                 if (isNaN(params.lambda) || params.lambda <= 0 || isNaN(params.a) || params.a <= 0 || isNaN(params.b) || params.b <= 0 || isNaN(params.c) || params.c <= 0 || isNaN(params.alpha) || params.alpha <= 0 || params.alpha >= 180 || isNaN(params.beta) || params.beta <= 0 || params.beta >= 180 || isNaN(params.gamma) || params.gamma <= 0 || params.gamma >= 180) { console.error("Invalid parameters:", params); return null; }
+                 return params;
+            }
+
+            const generateHKL_for_indexing = (maxTth, params, system, lambda) => {
+                const { a, b, c, beta } = params;
+                if (!a || !lambda) return [];
+                const reflections = [];
+                const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
+                const q_max_limit = (1 / (d_min * d_min)) * 1.05;
+                const h_max = Math.ceil(a / d_min) + 1; // +1 to ensure boundary is covered
+                const k_max = b ? Math.ceil(b / d_min) + 1 : h_max;
+                const l_max = c ? Math.ceil(c / d_min) + 1 : h_max;
+
+                if (system === 'monoclinic') {
+                    const sinBeta = Math.sin(beta * Math.PI / 180);
+                    const cosBeta = Math.cos(beta * Math.PI / 180);
+                    const sinBetaSq = sinBeta * sinBeta;
+                    if (sinBetaSq < 1e-6) return []; // Avoid division by zero
+
+                    for (let h = -h_max; h <= h_max; h++) {
+                        // --- MODIFIED (Request 1 & 4): Start k from 0, since d(h,k,l) = d(h,-k,l)
+                        for (let k = 0; k <= k_max; k++) { 
+                            for (let l = -l_max; l <= l_max; l++) {
+                                if (h === 0 && k === 0 && l === 0) continue;
+                                const inv_d_sq = (1 / sinBetaSq) * (h * h / (a * a) + l * l / (c * c) - 2 * h * l * cosBeta / (a * c)) + k * k / (b * b);
+                                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
+                                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+                                if (sinThetaSq > 0 && sinThetaSq <= 1) {
+                                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                                    reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
+                                }
+                            }
+                        }
+                    }
+                } else if (system === 'triclinic') {
+                    const cosAlpha = Math.cos(params.alpha * Math.PI / 180);
+                    const cosBeta = Math.cos(params.beta * Math.PI / 180);
+                    const cosGamma = Math.cos(params.gamma * Math.PI / 180);
+                    const sinAlpha = Math.sin(params.alpha * Math.PI / 180);
+                    const sinBeta = Math.sin(params.beta * Math.PI / 180);
+                    const sinGamma = Math.sin(params.gamma * Math.PI / 180);
+
+                    const V_sq = (params.a * params.b * params.c)**2 * (1 - cosAlpha**2 - cosBeta**2 - cosGamma**2 + 2 * cosAlpha * cosBeta * cosGamma);
+                    if (V_sq < 1e-6) return [];
+
+                    const A = (params.b * params.c * sinAlpha)**2 / V_sq;
+                    const B = (params.a * params.c * sinBeta)**2 / V_sq;
+                    const C = (params.a * params.b * sinGamma)**2 / V_sq;
+                    const D = 2 * params.b * params.c**2 * params.a * (cosAlpha * cosBeta - cosGamma) / V_sq;
+                    const E = 2 * params.c * params.a**2 * params.b * (cosGamma * cosAlpha - cosBeta) / V_sq;
+                    const F = 2 * params.a * params.b**2 * params.c * (cosBeta * cosGamma - cosAlpha) / V_sq;
+
+                    for (let h = -h_max; h <= h_max; h++) {
+                        for (let k = -k_max; k <= k_max; k++) {
+                            // --- MODIFIED (Request 1 & 4): Start l from 0
+                            for (let l = 0; l <= l_max; l++) {
+                                // --- MODIFIED (Request 1 & 4): Apply convention to remove Friedel duplicates
+                                // Enforce l>=0. If l=0, k>=0. If l=0, k=0, h>0.
+                                if (l === 0) {
+                                    if (k < 0) continue; // if l=0, k>=0
+                                    if (k === 0 && h <= 0) continue; // if l=0, k=0, h>0
+                                }
+                                if (h === 0 && k === 0 && l === 0) continue; // Already covered, but safe
+                                // --- END MODIFICATION ---
+                                
+                                const inv_d_sq = A * h * h + B * k * k + C * l * l + D * k * l + E * h * l + F * h * k;
+                                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
+                                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+                                if (sinThetaSq > 0 && sinThetaSq <= 1) {
+                                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                                    reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
+                                }
+                            }
+                        }
+                    }
+
+                } else { // Orthorhombic, Tetragonal, Cubic, Hexagonal, Trigonal
+					for (let h = 0; h <= h_max; h++) {
+				        const k_start = (system === 'orthorhombic') ? 0 : ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') ? 0 : -k_max);
+				        for (let k = k_start; k <= k_max; k++) {
+				            if ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') && k > h && k > 0) continue;
+				            
+				            // --- MODIFIED (Request 1): Start l from 0 for these systems
+				            // This fixes the (1,0,1) vs (1,0,-1) issue for hexagonal
+				            const l_start = 0; 
+				            for (let l = l_start; l <= l_max; l++) {
+				                if (system === 'cubic' && l > k && l > 0) continue;
+				                if (h === 0 && k === 0 && l === 0) continue;
+
+				                let inv_d_sq = 0;
+				                switch (system) {
+				                    case 'cubic': inv_d_sq = (h * h + k * k + l * l) / (a * a); break;
+				                    case 'tetragonal': inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c * c); break;
+				                    case 'orthorhombic': inv_d_sq = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c); break;
+				                    
+				                                    case 'hexagonal': case 'trigonal':
+				                                        // Standard hexagonal indexing allows negative k, but often represented with h, k, i=-h-k, l
+				                                        // For simplicity in calculation, use h,k,l and apply (4/3)*(h^2+hk+k^2)/a^2
+				                                        inv_d_sq = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
+				                                        break;
+				                                    default: continue; // Should not happen
+				                                }
+				                                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
+				                                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+				                                if (sinThetaSq > 0 && sinThetaSq <= 1) {
+				                                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+				                                    reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
+				                                }
+				                            }
+				                        }
+				                    }
+				                }
+                return reflections.sort((a, b) => a.tth - b.tth);
+            };
+
+
+            const satisfiesCondition = (h_in, k_in, l_in, condStr) => {
+                const h = Math.round(h_in); const k = Math.round(k_in); const l = Math.round(l_in);
+                if (condStr === "h+k, k+l, h+l=2n") { return ((h + k) % 2 === 0 && (k + l) % 2 === 0 && (h + l) % 2 === 0); }
+                const conditions = condStr.split(',').map(s => s.trim());
+                for (const condition of conditions) {
+                    const match = condition.match(/([0-9]*[hkl\+\-]+)\s*=\s*(\d+)n/);
+                    if (!match) { console.warn(`[satisfiesCondition] Could not parse rule part: "${condition}" in rule string "${condStr}"`); continue; }
+                    const [, expr, modStr] = match; const mod = parseInt(modStr);
+                    if (isNaN(mod) || mod <= 0) { console.warn(`[satisfiesCondition] Invalid modulus in rule part: "${condition}"`); continue; }
+                    let value = 0;
+                    const terms = expr.match(/[+-]?[0-9]*[hkl]/g) || [];
+                    for (const term of terms) {
+                        let sign = 1; let coeff = 1; let variable = '';
+                        const coeffMatch = term.match(/^([+-]?)(\d*)([hkl])$/);
+                        if (coeffMatch) {
+                            sign = (coeffMatch[1] === '-') ? -1 : 1;
+                            coeff = coeffMatch[2] ? parseInt(coeffMatch[2]) : 1;
+                            variable = coeffMatch[3];
+                            if (variable === 'h') value += sign * coeff * h;
+                            else if (variable === 'k') value += sign * coeff * k;
+                            else if (variable === 'l') value += sign * coeff * l;
+                        } else { console.warn(`[satisfiesCondition] Could not parse term "${term}" in expression "${expr}"`); }
+                    }
+                    if (value % mod !== 0) { return false; }
+                }
+                return true;
+            };
+
+            function getReflectionZone(h_in, k_in, l_in) {
+                const h = Math.round(h_in); const k = Math.round(k_in); const l = Math.round(l_in);
+                // General rules for common zones, order matters for specific cases
+                if (h === 0 && k === 0 && l !== 0) return '00l';
+                if (h === 0 && l === 0 && k !== 0) return '0k0';
+                if (k === 0 && l === 0 && h !== 0) return 'h00';
+                if (h === 0 && k !== 0 && l !== 0) return '0kl';
+                if (k === 0 && h !== 0 && l !== 0) return 'h0l';
+                if (l === 0 && h !== 0 && k !== 0) return 'hk0';
+                if (h === k && l === 0 && h !== 0) return 'hh0'; // Specific for hexagonal
+                if (h === l && k === 0 && h !== 0) return 'h0h'; // Specific for tetragonal/cubic
+                if (k === l && h === 0 && k !== 0) return '0kk'; // Specific for tetragonal/cubic
+                if (h === k && h === l && h !== 0) return 'hhh'; // Specific for cubic
+                if (h === k && l !== 0 && h !== 0) return 'hhl';
+                if (h === l && k !== 0 && h !== 0) return 'hkh';
+                if (k === l && h !== 0 && k !== 0) return 'hkk';
+                return 'hkl'; // Most general case
+            }
+
+            function initializeChart() {
+                if (hklChart) { hklChart.destroy(); hklChart = null; }
+                uiElements.placeholder.classList.add('hidden');
+                uiElements.chartContainer.classList.remove('hidden');
+                const ctx = uiElements.chartCanvas.getContext('2d');
+                hklChart = new Chart(ctx, { type: 'bar', data: { datasets: [
+                    { type: 'bar', label: 'Calculated Kα1', data: [], backgroundColor: 'rgba(59, 130, 246, 0.9)', barThickness: 1, categoryPercentage: 1.0, barPercentage: 1.0, order: 1 },
+                    { type: 'line', label: 'Experimental Data', data: [], borderColor: 'rgba(107, 114, 128, 0.7)', showLine: true, pointRadius: 0, borderWidth: 0.75, tension: 0.1, order: 3 },
+                    { type: 'bar', label: 'Calculated Kα2', data: [], backgroundColor: 'rgba(96, 165, 250, 0.7)', barThickness: 1, categoryPercentage: 1.0, barPercentage: 1.0, order: 2 }
+                    ] },
+                    options: {
+                        responsive: true, maintainAspectRatio: false, animation: false,
+                        scales: { x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' }, min: 0, max: 90 }, y: { title: { display: false }, min: 0, max: 1.1, ticks: { display: false } } },
+                       
+                       
+						plugins: {
+						    zoom: {
+						        pan: {
+						            enabled: true,
+						            mode: 'xy'
+						        },
+						        zoom: {
+						            wheel: {
+						                enabled: true,
+						                speed: 0.1,
+						                modifierKey: null  // Remove ctrl requirement
+						            },
+						            pinch: {
+						                enabled: true
+						            },
+						            mode: 'xy'
+						        }
+						    },
+
+
+                            legend: { display: true, position: 'top' },
+
+
+                            tooltip: { enabled: true, mode: 'nearest', intersect: false, callbacks: {
+                                title: function(tooltipItems) { if (!tooltipItems.length) return ''; const item = tooltipItems[0]; return `2θ: ${item.parsed.x.toFixed(3)}°`; },
+                                label: function(context) {
+                                    const hklData = context.raw?.hkl;
+                                    const source = context.datasetIndex === 0 ? "Kα1" : (context.datasetIndex === 2 ? "Kα2" : "");
+                                    if (hklData) { 
+                                    	// --- MODIFIED (Request 1): Show canonical HKL in tooltip
+                                    	// (The generator now only passes canonical HKLs, so no change needed here)
+                                    	return `(hkl): (${hklData.h}, ${hklData.k}, ${hklData.l}) ${source} d: ${hklData.d.toFixed(4)} Å`; 
+                                    }
+                                    if (context.datasetIndex === 1) { return `Intensity: ${context.parsed.y.toFixed(0)}`; } return null;
+                                }
+                            } }
+                        }
+                    }
+                });
+                console.log("Chart initialized.");
+
+                uiElements.chartCanvas.addEventListener('contextmenu', e => {
+					e.preventDefault();
+					if (hklChart) {
+					    hklChart.resetZoom();
+					}
+				});
+            }
+
+            function rescaleChartAxes() {
+                if (!hklChart) return;
+                const min2T = parseFloat(uiElements.min2ThetaNum.value) || 0;
+                const max2T = parseFloat(uiElements.max2ThetaNum.value) || 90;
+                hklChart.options.scales.x.min = min2T; hklChart.options.scales.x.max = max2T;
+                const expData = hklChart.data.datasets[1].data; let finalYMax = 1.1; let finalYMin = 0; let showYTicks = false;
+                if (expData && expData.length > 0) { const visibleExpData = expData.filter(pt => pt.x >= min2T && pt.x <= max2T); const intensities = visibleExpData.map(pt => pt.y); const maxY = intensities.length > 0 ? Math.max(...intensities) : 0; const minY = intensities.length > 0 ? Math.min(...intensities.filter(y => y > -Infinity)) : 0; finalYMax = Math.max(0.1, maxY) * 1.1; finalYMin = Math.min(0, minY) - finalYMax * 0.05; if (minY >= 0) { finalYMin = -finalYMax * 0.05; } showYTicks = true; } else { finalYMax = 1.1; finalYMin = 0; showYTicks = false; }
+                 hklChart.options.scales.y.min = finalYMin; hklChart.options.scales.y.max = finalYMax; hklChart.options.scales.y.ticks.display = showYTicks;
+            }
+
+            function updateChartMarkers(reflections_ka1, reflections_ka2 = []) {
+                 if (!hklChart) { console.log("Chart not init, skip update."); return; }
+                 const yAxis = hklChart.scales.y; const yMin = yAxis.min; const yMax = yAxis.max;
+                 const yRange = (yMax > yMin) ? yMax - yMin : 1;
+                 const markerHeight = yRange * 0.05;
+                 const markerTop = yMin + markerHeight;
+
+                const markerData_ka1 = reflections_ka1.map(r => ({ x: r.tth, y: [yMin, markerTop], hkl: { h: r.h, k: r.k, l: r.l, d: r.d } }));
+                const markerData_ka2 = reflections_ka2.map(r => ({ x: r.tth, y: [yMin, markerTop], hkl: { h: r.h, k: r.k, l: r.l, d: r.d } }));
+                
+                hklChart.data.datasets[0].data = markerData_ka1;
+                hklChart.data.datasets[2].data = markerData_ka2;
+            }
+
+            const calculateAndDrawHKLs = () => {
+                if (!hklChart && (currentSpaceGroup || experimentalData.tth.length > 0)) { initializeChart(); }
+                if (!currentSpaceGroup) { currentHKLList_ka1 = []; currentHKLList_ka2 = []; if(hklChart) { updateChartMarkers([],[]); rescaleChartAxes(); hklChart.update('none'); } uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Enter Valid Space Group"; return; }
+                const params = getCurrentParameters();
+                const min2T = parseFloat(uiElements.min2ThetaNum.value);
+                const max2T = parseFloat(uiElements.max2ThetaNum.value);
+                if (!params || isNaN(min2T) || isNaN(max2T)) { currentHKLList_ka1 = []; currentHKLList_ka2 = []; if(hklChart) { updateChartMarkers([],[]); rescaleChartAxes(); hklChart.update('none'); } uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Invalid Parameters"; return; }
+
+                console.log("Calculating HKLs with params:", params, "Range:", min2T, "-", max2T);
+                
+                const settingIndex = parseInt(uiElements.settingSelect.value) >= 0 ? parseInt(uiElements.settingSelect.value) : 0; const setting = currentSpaceGroup.settings[settingIndex] || currentSpaceGroup.settings[0]; const conditions = setting?.reflection_conditions || {};
+                
+                const filterHKLs = (hkl_list) => {
+                    return hkl_list.filter(refl => {
+                        if (refl.tth < min2T || refl.tth > max2T) return false;
+                        let isAllowed = true;
+                        const zone = getReflectionZone(refl.h, refl.k, refl.l);
+                        const zoneConditions = conditions[zone] || [];
+                        const generalConditions = conditions['hkl'] || [];
+                        const allApplicableConditions = [...zoneConditions, ...generalConditions];
+                        
+                        const uniqueConditions = new Set(allApplicableConditions); 
+
+                        for (const condStr of uniqueConditions) {
+                            if (!satisfiesCondition(refl.h, refl.k, refl.l, condStr)) {
+                                 isAllowed = false;
+                                 break;
+                            }
+                        }
+                        return isAllowed;
+                    });
+                };
+                
+                const allHKLs_ka1 = generateHKL_for_indexing(max2T, params, params.system, params.lambda);
+                currentHKLList_ka1 = filterHKLs(allHKLs_ka1);
+                console.log(`Generated ${allHKLs_ka1.length} Ka1 HKLs, ${currentHKLList_ka1.length} allowed in range.`);
+                
+                currentHKLList_ka2 = [];
+                if (params.lambda_ka2) {
+                    const allHKLs_ka2 = generateHKL_for_indexing(max2T, params, params.system, params.lambda_ka2);
+                    currentHKLList_ka2 = filterHKLs(allHKLs_ka2);
+                     console.log(`Generated ${allHKLs_ka2.length} Ka2 HKLs, ${currentHKLList_ka2.length} allowed in range.`);
+                }
+
+                if (hklChart) {
+                    rescaleChartAxes();
+                    updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2);
+                    hklChart.update('none');
+                }
+                uiElements.saveButton.disabled = false; uiElements.saveButton.textContent = "Save HKL List";
+             };
+
+            const debouncedCalculate = debounce(calculateAndDrawHKLs, 300);
+
+            uiElements.sgInput.addEventListener('input', () => {
+                const inputText = uiElements.sgInput.value; currentSpaceGroup = findSpaceGroup(inputText); uiElements.sgInput.classList.remove('error');
+                if (currentSpaceGroup) {
+                    if (!hklChart && experimentalData.tth.length == 0) { initializeChart(); }
+                    else if (!hklChart && experimentalData.tth.length > 0){ initializeChart(); const expPoints = experimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, experimentalData.intensity[i]) })); hklChart.data.datasets[1].data = expPoints; }
+                    uiElements.systemDisplay.textContent = currentSpaceGroup.crystal_system.charAt(0).toUpperCase() + currentSpaceGroup.crystal_system.slice(1);
+                    updateParameterInputs(currentSpaceGroup.crystal_system); updateSettingsDropdown(currentSpaceGroup); debouncedCalculate();
+                } else {
+                     uiElements.systemDisplay.textContent = "-"; updateParameterInputs(null); updateSettingsDropdown(null); currentHKLList_ka1 = []; currentHKLList_ka2 = [];
+                    if(hklChart) {
+                        updateChartMarkers([], []);
+                        rescaleChartAxes();
+                        if (experimentalData.tth.length === 0) { uiElements.placeholder.classList.remove('hidden'); uiElements.chartContainer.classList.add('hidden'); hklChart.destroy(); hklChart = null; }
+                        else { hklChart.update('none'); }
+                    }
+                    uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Enter Valid Space Group"; if (inputText.trim() !== "") uiElements.sgInput.classList.add('error');
+                 }
+            });
+
+             function handleWavelengthChange() {
+                 const preset = uiElements.wavelengthPreset.value;
+                 const plotKa2 = uiElements.plotKa2Checkbox.checked;
+
+                 if (preset === 'custom') {
+                     uiElements.wavelength.readOnly = false;
+                     uiElements.plotKa2Checkbox.checked = false;
+                     uiElements.plotKa2Checkbox.disabled = true;
+                 } else {
+                     const presetData = WAVELENGTH_PRESETS[preset];
+                     uiElements.wavelength.readOnly = true;
+                     uiElements.plotKa2Checkbox.disabled = false;
+                     if (plotKa2) {
+                         uiElements.wavelength.value = presetData.ka1.toFixed(5);
+                     } else {
+                         uiElements.wavelength.value = presetData.ka_avg.toFixed(5);
+                     }
+                 }
+                 debouncedCalculate();
+             }
+             uiElements.wavelengthPreset.addEventListener('change', handleWavelengthChange);
+             uiElements.plotKa2Checkbox.addEventListener('change', handleWavelengthChange);
+             uiElements.wavelength.addEventListener('input', debouncedCalculate);
+
+             uiElements.min2ThetaSlider.addEventListener('input', () => {
+                let minVal = parseFloat(uiElements.min2ThetaSlider.value);
+                let maxVal = parseFloat(uiElements.max2ThetaSlider.value);
+                if (minVal >= maxVal) { minVal = maxVal - parseFloat(uiElements.min2ThetaSlider.step); uiElements.min2ThetaSlider.value = minVal; }
+                 uiElements.min2ThetaValue.textContent = minVal.toFixed(2); // MODIFIED: toFixed(2) for consistency
+                 uiElements.min2ThetaNum.value = minVal;
+                 debouncedCalculate();
+             });
+             uiElements.max2ThetaSlider.addEventListener('input', () => {
+                 let minVal = parseFloat(uiElements.min2ThetaSlider.value);
+                 let maxVal = parseFloat(uiElements.max2ThetaSlider.value);
+                 if (maxVal <= minVal) { maxVal = minVal + parseFloat(uiElements.max2ThetaSlider.step); uiElements.max2ThetaSlider.value = maxVal; }
+                 uiElements.max2ThetaValue.textContent = maxVal.toFixed(2); // MODIFIED: toFixed(2) for consistency
+                 uiElements.max2ThetaNum.value = maxVal;
+                 debouncedCalculate();
+             });
+
+            const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel'); resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize'; const moveHandler = (moveEvent) => { if (moveEvent.clientX > 300 && moveEvent.clientX < window.innerWidth - 300) leftPanel.style.width = `${moveEvent.clientX}px`; }; const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); }; window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler); });
+
+            const parseDataFile = (text, fileName = "") => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let last_x = -Infinity; let suspicious_steps = 0; let positive_x_values = 0; let negative_steps = 0; let headerLines = 0; let dataStarted = false; lines.forEach(line => { if (line.startsWith('#') || line.startsWith('//') || line.startsWith('!') || line.startsWith(';') || line.trim() === '') { if (!dataStarted) headerLines++; return; } if (!dataStarted) { if (/[a-zA-Z]/.test(line)) { headerLines++; return; } } const parts = line.trim().split(/[\s,;]+/); if (parts.length < 2) return; const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (isNaN(x) || isNaN(y)) { if (!dataStarted) headerLines++; return; } dataStarted = true; if (x > 0) positive_x_values++; if (last_x !== -Infinity) { const dX = x - last_x; if (dX < 0) { negative_steps++; } else if (dX > 0 && (dX < 0.0001 || dX > 0.2)) { suspicious_steps++; } } last_x = x; tth.push(x); intensity.push(y); }); if (tth.length > 10) { if (positive_x_values / tth.length < 0.5) { console.warn(`Data File (${fileName}) Warning: Most 2-theta (X) values are zero or negative.`); } if (negative_steps / tth.length > 0.8) { console.warn(`Data File (${fileName}) Warning: Data appears to be sorted in descending 2-theta order.`); } if (suspicious_steps / tth.length > 0.2) { console.warn(`Data File (${fileName}) Warning: Many data points have a step size outside the typical range (0.0001° - 0.2°).`); } } else if (tth.length === 0) { throw new Error(`Could not parse any 2-column data from ${fileName}.`); } return { tth, intensity }; };
+            const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1)); return { tth, intensity, wavelength }; };
+            const parseBrukerBrmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in BRML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
+            const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
+            const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') { startTth = parseFloat(parts[5]) / 100.0; stepSize = parseFloat(parts[6]) / 100.0; dataStartIndex = index + 1; } } }); if (startTth === undefined || stepSize === undefined) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+            const parseGsasXraFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') { startTth = parseFloat(parts[5]) / 100.0; stepSize = parseFloat(parts[6]) / 100.0; dataStartIndex = index + 1; } } }); if (startTth === undefined || stepSize === undefined) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS XRA Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { if (lines[i].trim() === '') continue; const parts = lines[i].trim().split(/\s+/); for (let j = 0; j < parts.length; j++) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS XRA Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+            const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+            const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
+            const detectAndParseFile = (fileName, fileContent) => { const name = fileName.toLowerCase(); const lines = fileContent.trim().split(/\r?\n/); const firstLine = lines.length > 0 ? lines[0].trim() : ''; const upperContent = fileContent.substring(0, 500).toUpperCase(); const PARSER_REGISTRY = [ { test: (name, content) => name.endsWith('.xrdml') || (content.includes('<?xml') && content.includes('<xrdMeasurement')), parser: parseXrdmlFile }, { test: (name, content) => name.endsWith('.brml') || (content.includes('<?xml') && content.includes('<RawDataFile')), parser: parseBrukerBrmlFile }, { test: (name, content) => name.endsWith('.rasx') && content.includes('<?xml'), parser: parseBrukerBrmlFile }, { test: (name, content, firstLine) => name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION'), parser: parseUxdFile }, { test: (name, content, firstLine, upper) => name.endsWith('.ras') || upper.includes('*RAS_HEADER_START'), parser: parseRigakuRasFile }, { test: (name) => name.endsWith('.udf') || name.endsWith('.rd') || name.endsWith('.sd'), parser: parsePhilipsUdfFile }, { test: (name, content, firstLine, upper, allLines) => allLines.some(line => line.trim().toUpperCase().startsWith('BANK')), parser: (content, allLines) => { const bankLine = allLines.find(line => line.trim().toUpperCase().startsWith('BANK')); if (bankLine && bankLine.toUpperCase().includes('STD')) { return parseGsasXraFile(content); } return parseGsasEsdFile(content); } }, { test: (name, content, firstLine, upper) => name.endsWith('.mdi') && (upper.includes('2-THETA, INTENSITY') || upper.startsWith('(SAMPLE')), parser: parseDataFile } ]; for (const rule of PARSER_REGISTRY) { try { if (rule.test(name, fileContent, firstLine, upperContent, lines)) { if (rule.parser.length > 1) { return rule.parser(fileContent, lines); } return rule.parser(fileContent); } } catch (e) { console.warn(`Parser ${rule.parser.name} failed, trying next...`, e.message); } } return parseDataFile(fileContent, fileName); };
+
+            uiElements.expFileInput.addEventListener('change', async (e) => {
+                 const file = e.target.files[0];
+                 if (!file) { experimentalData = { tth: [], intensity: [] }; uiElements.expFileName.textContent = "Select Data File..."; if (hklChart) { hklChart.data.datasets[1].data = []; if (currentHKLList_ka1.length === 0 && !currentSpaceGroup) { uiElements.placeholder.classList.remove('hidden'); uiElements.chartContainer.classList.add('hidden'); hklChart.destroy(); hklChart = null; } else { rescaleChartAxes(); hklChart.update('none'); } } return; }
+                 uiElements.expFileName.textContent = file.name;
+                 try {
+                     const text = await file.text(); const parsed = detectAndParseFile(file.name, text);
+                     if (!parsed || !parsed.tth || parsed.tth.length === 0) throw new Error("Could not parse data from file.");
+                     experimentalData = { tth: parsed.tth, intensity: parsed.intensity };
+                     if (!hklChart) { initializeChart(); }
+                     const expPoints = experimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, experimentalData.intensity[i]) }));
+                     hklChart.data.datasets[1].data = expPoints;
+                     rescaleChartAxes();
+                     updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2);
+                     hklChart.update('none');
+                 } catch (error) { console.error("Error loading experimental data:", error); alert(`Error loading file: ${error.message}`); experimentalData = { tth: [], intensity: [] }; uiElements.expFileName.textContent = "Error loading file!"; if (hklChart) { hklChart.data.datasets[1].data = []; if (currentHKLList_ka1.length === 0 && !currentSpaceGroup) { uiElements.placeholder.classList.remove('hidden'); uiElements.chartContainer.classList.add('hidden'); hklChart.destroy(); hklChart = null; } else { rescaleChartAxes(); hklChart.update('none'); } }
+                 } finally { e.target.value = null; }
+             });
+
+             function saveHKLFile() {
+                 const hklLists = [
+                     { list: currentHKLList_ka1, source: uiElements.plotKa2Checkbox.checked && uiElements.wavelengthPreset.value !== 'custom' ? "K-alpha1" : "Avg/Custom" },
+                     { list: currentHKLList_ka2, source: "K-alpha2" }
+                 ];
+                 if (hklLists[0].list.length === 0 && hklLists[1].list.length === 0) {
+                     alert("No calculated HKLs to save.");
+                     return;
+                 }
+
+                // --- MODIFICATION: Add URL and Footer to saved file ---
+                const footerText = "IndexMan, version 29 oct 2025";
+                let fileContent = `# URL: ${window.location.href}\n`;
+                fileContent += `# ${footerText}\n`;
+                fileContent += `# =============================================\n`;
+                fileContent += `# HKL Simulation Results\n`;
+                // --- END MODIFICATION ---
+				
+                // --- MODIFIED (Request 3): Define settingIndex inside this function's scope
+                const settingIndex = parseInt(uiElements.settingSelect.value) >= 0 ? parseInt(uiElements.settingSelect.value) : 0;
+                const setting = currentSpaceGroup?.settings[settingIndex] || currentSpaceGroup?.settings[0];
+                const sgSymbol = setting?.symbol || currentSpaceGroup?.standard_symbol || 'N/A';
+                const settingDesc = setting?.description ? ` (${setting.description})` : '';
+
+                fileContent += `# Space Group: ${sgSymbol}${settingDesc}\n`;
+
+                 // *** ADDED: Format and Add Reflection Conditions ***
+                 let conditionsString = "# Reflection Conditions: ";
+                 const conditions = setting?.reflection_conditions;
+                 if (conditions && Object.keys(conditions).length > 0) {
+                     const parts = [];
+                     for (const zone in conditions) {
+                         if (conditions[zone] && conditions[zone].length > 0) {
+                             parts.push(`${zone}: ${conditions[zone].join(', ')}`);
+                         }
+                     }
+                     conditionsString += parts.join('; ') || "None for this setting";
+                 } else {
+                     conditionsString += "None (P1 or check setting)";
+                 }
+                 fileContent += conditionsString + "\n";
+                 // *** END ADDED ***
+
+                const params = getCurrentParameters();
+                if(params) {
+                    fileContent += `# Parameters: a=${params.a.toFixed(5)} b=${params.b.toFixed(5)} c=${params.c.toFixed(5)} alpha=${params.alpha.toFixed(3)} beta=${params.beta.toFixed(3)} gamma=${params.gamma.toFixed(3)}\n`;
+                    if(params.lambda_ka2) {
+                        fileContent += `# Wavelength K-alpha1 (A): ${params.lambda.toFixed(5)}\n`;
+                        fileContent += `# Wavelength K-alpha2 (A): ${params.lambda_ka2.toFixed(5)}\n`;
+                    } else {
+                        fileContent += `# Wavelength (A): ${params.lambda.toFixed(5)}\n`;
+                    }
+                }
+                fileContent += `# Range (2theta): ${uiElements.min2ThetaNum.value} - ${uiElements.max2ThetaNum.value}\n`;
+                fileContent += `# Columns: h k l d_spacing(A) 2theta(deg) Source\n`;
+                // fileContent += `# =============================================\n`; // <-- This line is now redundant
+
+                // --- MODIFICATION: Combine, sort, and then write HKLs ---
+                
+                const combinedList = [];
+                
+                // 1. Add source property to each reflection and create a combined list
+                const ka1_source = uiElements.plotKa2Checkbox.checked && uiElements.wavelengthPreset.value !== 'custom' ? "K-alpha1" : "Avg/Custom";
+                currentHKLList_ka1.forEach(hkl => {
+                    combinedList.push({ ...hkl, source: ka1_source });
+                });
+                
+                if (currentHKLList_ka2.length > 0) {
+                    const ka2_source = "K-alpha2";
+                    currentHKLList_ka2.forEach(hkl => {
+                        combinedList.push({ ...hkl, source: ka2_source });
+                    });
+                }
+
+                // 2. Sort the combined list by 2-theta (tth)
+                combinedList.sort((a, b) => a.tth - b.tth);
+
+                // 3. Iterate through the sorted list and build the file content
+                combinedList.forEach(hkl => {
+                    const hStr = String(hkl.h).padStart(4);
+                    const kStr = String(hkl.k).padStart(4);
+                    const lStr = String(hkl.l).padStart(4);
+                    fileContent += `${hStr} ${kStr} ${lStr} ${hkl.d.toFixed(5).padStart(12)} ${hkl.tth.toFixed(4).padStart(12)} ${hkl.source}\n`;
+                });
+                
+                // --- END MODIFICATION ---
+
+                /* // OLD CODE that was replaced:
+                hklLists.forEach(({ list, source }) => {
+                    if (list.length > 0) {
+                        list.forEach(hkl => {
+                            const hStr = String(hkl.h).padStart(4);
+                            const kStr = String(hkl.k).padStart(4);
+                            const lStr = String(hkl.l).padStart(4);
+                            fileContent += `${hStr} ${kStr} ${lStr} ${hkl.d.toFixed(5).padStart(12)} ${hkl.tth.toFixed(4).padStart(12)} ${source}\n`;
+                        });
+                    }
+                });
+                */
+
+                const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                const sgName = sgSymbol.replace(/[^a-zA-Z0-9]/g, '') || 'hkl'; // Use actual setting symbol
+                link.setAttribute("download", `${sgName}_simulation.txt`);
+                link.style.visibility = 'hidden'; document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link); URL.revokeObjectURL(url);
+            }
+            // Ensure the listener is still attached
+            uiElements.saveButton.addEventListener('click', saveHKLFile);
+            
+
+            // --- Initialize ---
+           
+			Chart.register(window.ChartZoom || window['chartjs-plugin-zoom']);
+
+
+            loadSpaceGroupData();
+             // Set initial slider text and hidden input values
+             uiElements.min2ThetaNum.value = uiElements.min2ThetaSlider.value;
+             uiElements.max2ThetaNum.value = uiElements.max2ThetaSlider.value;
+             // --- MODIFIED (Request 4): Use toFixed(2) for consistency
+             uiElements.min2ThetaValue.textContent = parseFloat(uiElements.min2ThetaSlider.value).toFixed(2);
+             uiElements.max2ThetaValue.textContent = parseFloat(uiElements.max2ThetaSlider.value).toFixed(2);
+             // Trigger initial wavelength setup
+             handleWavelengthChange();
+        });
+    </script>
+
+</body>
+</html>
+
+
+
+
+
+
