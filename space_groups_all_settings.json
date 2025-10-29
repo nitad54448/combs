@@ -11314,6 +11314,16 @@
           "symbol": "P-43n",
           "description": "",
           "reflection_conditions": {
+          "0kl": [
+            "k+l=2n"
+          ],
+          "h0l": [
+            "h+l=2n"
+          ],
+          "hk0": [
+            "h+k=2n"
+          ],
+
             "hhl": [
               "l=2n"
             ],
@@ -11488,39 +11498,50 @@
         }
       ]
     },
-    "223": {
-      "number": 223,
-      "standard_symbol": "P m -3 n",
-      "crystal_system": "cubic",
-      "point_group": "m-3m",
-      "centrosymmetric": true,
-      "settings": [
-        {
-          "symbol": "Pm-3n",
-          "description": "",
-          "reflection_conditions": {
-            "hhl": [
-              "l=2n"
-            ],
-            "hkk": [
-              "h=2n"
-            ],
-            "hll": [
-              "h=2n"
-            ],
-            "h00": [
-              "h=2n"
-            ],
-            "0k0": [
-              "k=2n"
-            ],
-            "00l": [
-              "l=2n"
-            ]
-          }
+"223": {
+    "number": 223,
+    "standard_symbol": "P m -3 n",
+    "crystal_system": "cubic",
+    "point_group": "m-3m",
+    "centrosymmetric": true,
+    "settings": [
+      {
+        "symbol": "Pm-3n",
+        "description": "",
+        "reflection_conditions": {
+          ],
+          "hk0": [
+            "h+k=2n"
+          ],
+          "h0l": [
+            "h+l=2n"
+          ],
+          "0kl": [
+            "k+l=2n"
+          ],
+          "hhl": [
+            "l=2n"
+          ],
+          "hkk": [
+            "h=2n"
+          ],
+          "hll": [
+            "h=2n"
+          ],
+          "h00": [
+            "h=2n"
+          ],
+          "0k0": [
+            "k=2n"
+          ],
+          "00l": [
+            "l=2n"
+          ]
         }
-      ]
-    },
+      }
+    ]
+  },
+
     "224": {
       "number": 224,
       "standard_symbol": "P n -3 m",
