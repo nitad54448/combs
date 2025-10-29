@@ -32,7 +32,7 @@
             min-width: 0; 
             display: flex; 
             flex-direction: column; 
-            /* MODIFICATION: Reduced bottom padding from 1.5rem to 0.5rem */
+           
             padding: 1.5rem 1.5rem 0.5rem 1.5rem; 
             color: var(--medium-bg); 
             z-index: 10;
@@ -54,7 +54,7 @@
         .parameter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.75rem; }
         .parameter-grid .control-input { width: 100%; }
         
-        /* --- MODIFICATION: Allow flex-grow for footer --- */
+      
         #hkl-chart-container { 
             width: 100%; 
             flex-grow: 1; /* Changed from height: 100% */
@@ -73,7 +73,7 @@
         }
         #placeholder svg { width: 4rem; height: 4rem; margin-bottom: 1rem; }
         
-        /* --- NEW: Footer Style --- */
+       
         #app-footer {
             padding: 8px 0;
             text-align: center;
@@ -84,18 +84,18 @@
             flex-shrink: 0; /* Don't let it shrink */
         }
         
-        /* --- MODIFIED: 2Theta Sliders (to match image layout) --- */
+       
         .slider-group {
             display: flex;
             align-items: center;
             gap: 0.75rem; /* Gap between label and box */
             margin-bottom: 0.75rem;
-            /* REMOVED background, border, padding, etc. This is now a wrapper. */
+            
         }
         .slider-group .control-label {
             margin-bottom: 0;
             font-size: 0.875rem;
-            color: var(--text-dark); /* MODIFIED: Use standard label color */
+            color: var(--text-dark); 
             flex-shrink: 0;
             min-width: 50px;
             text-align: left;
@@ -107,7 +107,7 @@
             border: 1px solid var(--border-color);
             border-radius: 0.35rem;
             padding: 0.5rem 0.75rem;
-            height: 30px;
+            height: 44px;
             box-sizing: border-box;
             
             flex-grow: 1; /* Box fills remaining space */
@@ -115,7 +115,7 @@
             align-items: center;
         }
         
-        /* NEW: Wrapper for slider + value (no changes, just context) */
+        
         .slider-wrapper {
             position: relative;
             flex-grow: 1;
@@ -126,7 +126,7 @@
 
         input[type="range"].custom-slider {
             flex-grow: 1; /* Slider input fills wrapper */
-            /* --- MODIFICATION: Hide the track --- */
+            
             height: 4px; 
             background: transparent; /* Make track invisible */
             border-radius: 2px;
@@ -148,7 +148,7 @@
         }
         input[type="range"].custom-slider::-moz-range-thumb {
             width: 16px; height: 16px;
-            /* --- MODIFICATION: Match image thumb --- */
+            
             background: #ffffff; /* Pure white fill */
             border-radius: 50%;
             cursor: pointer;
@@ -173,7 +173,7 @@
             pointer-events: none;
             z-index: 5; /* Behind thumb, above track */
         }
-        /* --- END MODIFICATION --- */
+        
         
         /* Checkbox style */
         .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-medium); cursor: pointer; margin-top: 0.75rem;}
@@ -212,6 +212,57 @@
 		    min-width: 0;      /* prevent select from expanding */
 		    box-sizing: border-box;
 		}
+		
+        
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            z-index: 100; /* Ensure tooltip is on top */
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 300px; /* Set width */
+            background-color: var(--light-bg); /* Use theme color */
+            color: var(--text-light); /* Use theme color */
+            text-align: left;
+            border-radius: 6px;
+            padding: 12px 16px;
+            position: absolute;
+            z-index: 101;
+            top: 150%; /* Position below the icon */
+            left: 0;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            border: 1px solid var(--border-color); /* Add theme border */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .tooltip .tooltiptext ul {
+            list-style-position: inside;
+            padding-left: 0.5rem;
+            margin-top: 0.25rem;
+        }
+        .tooltip .tooltiptext li {
+            margin-bottom: 0.25rem;
+        }
+
+        .tooltip .tooltiptext::after { /* Arrow */
+            content: "";
+            position: absolute;
+            bottom: 100%; /* At the top of the tooltip */
+            left: 10px; /* Near the left edge */
+            margin-left: 0;
+            border-width: 5px;
+            border-style: solid;
+            border-color: transparent transparent var(--light-bg) transparent; /* Match bg */
+        }
+
+        .tooltip .tooltiptext.visible {
+            visibility: visible;
+            opacity: 1;
+        }
+        
     </style>
 </head>
 <body>
@@ -220,7 +271,28 @@
         <div id="controls-panel">
 
             <div class="control-group">
-                 <label for="exp-file-input" class="control-label">Experimental Data (Optional)</label>
+                
+                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 8px;">
+                     <!-- NEW: Tooltip HTML -->
+                     <div class="tooltip">
+                         <span id="tooltip-icon" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; font-weight: 700; color: var(--dark-bg); background-color: var(--text-dark); border-radius: 50%; cursor: pointer; user-select: none; font-size: 0.875rem;">?</span>
+                         <span id="tooltip-text" class="tooltiptext">
+                             <b>HKL Pattern Simulator</b><br>
+                             Calculates theoretical HKL reflection positions from space group and unit cell parameters.
+                             <br><br>
+                             <b>Chart Interactions:</b>
+                             <ul>
+                                 <li><b>Zoom:</b> Use the mouse wheel.</li>
+                                 <li><b>Pan:</b> Click and drag.</li>
+                                 <li><b>Reset:</b> Right-click on the chart.</li>
+                             </ul>
+                         </span>
+                     </div>
+                     <!-- END Tooltip HTML -->
+                     <label for="exp-file-input" class="control-label" style="margin-bottom: 0;">Experimental Data (Optional)</label>
+                 </div>
+                 
+                 <!-- Existing file input button -->
                  <label for="exp-file-input" class="btn-like btn-secondary file-label">
                      <span id="exp-file-name">Select Data File...</span>
                  </label>
@@ -286,7 +358,7 @@
                 </div>
                 <div class="slider-group">
                     <label for="max-2theta-slider" class="control-label">2θ Max</label>
-                    <!-- NEW: This 'slider-box' is the dark rounded rectangle -->
+                   
                     <div class="slider-box">
                         <div class="slider-wrapper">
                             <input type="range" id="max-2theta-slider" class="custom-slider" min="5" max="180" value="90" step="0.1">
@@ -315,7 +387,7 @@
                 <canvas id="hkl-chart"></canvas>
             </div>
             
-            <!-- NEW FOOTER ELEMENT -->
+            
             <footer id="app-footer">
                 IndexMan, version 29 oct 2025
             </footer>
@@ -498,7 +570,7 @@
                     if (sinBetaSq < 1e-6) return []; // Avoid division by zero
 
                     for (let h = -h_max; h <= h_max; h++) {
-                        // --- MODIFIED (Request 1 & 4): Start k from 0, since d(h,k,l) = d(h,-k,l)
+                        // ---   Start k from 0, since d(h,k,l) = d(h,-k,l)
                         for (let k = 0; k <= k_max; k++) { 
                             for (let l = -l_max; l <= l_max; l++) {
                                 if (h === 0 && k === 0 && l === 0) continue;
@@ -532,16 +604,16 @@
 
                     for (let h = -h_max; h <= h_max; h++) {
                         for (let k = -k_max; k <= k_max; k++) {
-                            // --- MODIFIED (Request 1 & 4): Start l from 0
+                            //  Start l from 0
                             for (let l = 0; l <= l_max; l++) {
-                                // --- MODIFIED (Request 1 & 4): Apply convention to remove Friedel duplicates
+                                // -Apply convention to remove Friedel duplicates
                                 // Enforce l>=0. If l=0, k>=0. If l=0, k=0, h>0.
                                 if (l === 0) {
                                     if (k < 0) continue; // if l=0, k>=0
                                     if (k === 0 && h <= 0) continue; // if l=0, k=0, h>0
                                 }
                                 if (h === 0 && k === 0 && l === 0) continue; // Already covered, but safe
-                                // --- END MODIFICATION ---
+                             
                                 
                                 const inv_d_sq = A * h * h + B * k * k + C * l * l + D * k * l + E * h * l + F * h * k;
                                 if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
@@ -560,7 +632,7 @@
 				        for (let k = k_start; k <= k_max; k++) {
 				            if ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') && k > h && k > 0) continue;
 				            
-				            // --- MODIFIED (Request 1): Start l from 0 for these systems
+				            // --- erreur avant le 29 oct
 				            // This fixes the (1,0,1) vs (1,0,-1) issue for hexagonal
 				            const l_start = 0; 
 				            for (let l = l_start; l <= l_max; l++) {
@@ -671,7 +743,23 @@
 						            pinch: {
 						                enabled: true
 						            },
-						            mode: 'xy'
+						            mode: 'xy',
+						            
+						            onZoomComplete: function({chart}) {
+						                // Re-calculate marker heights based on new scale
+						                updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2);
+						                chart.update('none'); // Redraw with new marker heights
+						            }
+						        },
+						        
+						        pan: {
+						            enabled: true,
+						            mode: 'xy',
+						            onPanComplete: function({chart}) {
+						                // Re-calculate marker heights based on new scale
+						                updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2);
+						                chart.update('none'); // Redraw with new marker heights
+						            }
 						        }
 						    },
 
@@ -685,7 +773,7 @@
                                     const hklData = context.raw?.hkl;
                                     const source = context.datasetIndex === 0 ? "Kα1" : (context.datasetIndex === 2 ? "Kα2" : "");
                                     if (hklData) { 
-                                    	// --- MODIFIED (Request 1): Show canonical HKL in tooltip
+                                    	// --- Show canonical HKL in tooltip
                                     	// (The generator now only passes canonical HKLs, so no change needed here)
                                     	return `(hkl): (${hklData.h}, ${hklData.k}, ${hklData.l}) ${source} d: ${hklData.d.toFixed(4)} Å`; 
                                     }
@@ -713,13 +801,28 @@
                 const expData = hklChart.data.datasets[1].data; let finalYMax = 1.1; let finalYMin = 0; let showYTicks = false;
                 if (expData && expData.length > 0) { const visibleExpData = expData.filter(pt => pt.x >= min2T && pt.x <= max2T); const intensities = visibleExpData.map(pt => pt.y); const maxY = intensities.length > 0 ? Math.max(...intensities) : 0; const minY = intensities.length > 0 ? Math.min(...intensities.filter(y => y > -Infinity)) : 0; finalYMax = Math.max(0.1, maxY) * 1.1; finalYMin = Math.min(0, minY) - finalYMax * 0.05; if (minY >= 0) { finalYMin = -finalYMax * 0.05; } showYTicks = true; } else { finalYMax = 1.1; finalYMin = 0; showYTicks = false; }
                  hklChart.options.scales.y.min = finalYMin; hklChart.options.scales.y.max = finalYMax; hklChart.options.scales.y.ticks.display = showYTicks;
+                 
+                 return { finalYMin, finalYMax };
             }
 
-            function updateChartMarkers(reflections_ka1, reflections_ka2 = []) {
+            function updateChartMarkers(reflections_ka1, reflections_ka2 = [], newYScale = null) {
                  if (!hklChart) { console.log("Chart not init, skip update."); return; }
-                 const yAxis = hklChart.scales.y; const yMin = yAxis.min; const yMax = yAxis.max;
+                 
+                 let yMin, yMax;
+                 if (newYScale) {
+                     // Use pending values if provided (for file load/recalculate)
+                     yMin = newYScale.finalYMin;
+                     yMax = newYScale.finalYMax;
+                 } else {
+                     // Use live scale values (for zoom/pan callbacks)
+                     const yAxis = hklChart.scales.y;
+                     yMin = yAxis.min;
+                     yMax = yAxis.max;
+                 }
+                 
                  const yRange = (yMax > yMin) ? yMax - yMin : 1;
-                 const markerHeight = yRange * 0.05;
+                 /*  Set marker height to 3% of Y-axis range, à voir */
+                 const markerHeight = yRange * 0.03;
                  const markerTop = yMin + markerHeight;
 
                 const markerData_ka1 = reflections_ka1.map(r => ({ x: r.tth, y: [yMin, markerTop], hkl: { h: r.h, k: r.k, l: r.l, d: r.d } }));
@@ -774,8 +877,8 @@
                 }
 
                 if (hklChart) {
-                    rescaleChartAxes();
-                    updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2);
+                    const newYScale = rescaleChartAxes(); // Get new scale
+                    updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2, newYScale); // Pass new scale
                     hklChart.update('none');
                 }
                 uiElements.saveButton.disabled = false; uiElements.saveButton.textContent = "Save HKL List";
@@ -830,7 +933,7 @@
                 let minVal = parseFloat(uiElements.min2ThetaSlider.value);
                 let maxVal = parseFloat(uiElements.max2ThetaSlider.value);
                 if (minVal >= maxVal) { minVal = maxVal - parseFloat(uiElements.min2ThetaSlider.step); uiElements.min2ThetaSlider.value = minVal; }
-                 uiElements.min2ThetaValue.textContent = minVal.toFixed(2); // MODIFIED: toFixed(2) for consistency
+                 uiElements.min2ThetaValue.textContent = minVal.toFixed(2); // 
                  uiElements.min2ThetaNum.value = minVal;
                  debouncedCalculate();
              });
@@ -838,7 +941,7 @@
                  let minVal = parseFloat(uiElements.min2ThetaSlider.value);
                  let maxVal = parseFloat(uiElements.max2ThetaSlider.value);
                  if (maxVal <= minVal) { maxVal = minVal + parseFloat(uiElements.max2ThetaSlider.step); uiElements.max2ThetaSlider.value = maxVal; }
-                 uiElements.max2ThetaValue.textContent = maxVal.toFixed(2); // MODIFIED: toFixed(2) for consistency
+                 uiElements.max2ThetaValue.textContent = maxVal.toFixed(2); // toFixed(2), le 29 oct
                  uiElements.max2ThetaNum.value = maxVal;
                  debouncedCalculate();
              });
@@ -862,12 +965,58 @@
                  try {
                      const text = await file.text(); const parsed = detectAndParseFile(file.name, text);
                      if (!parsed || !parsed.tth || parsed.tth.length === 0) throw new Error("Could not parse data from file.");
+                     
                      experimentalData = { tth: parsed.tth, intensity: parsed.intensity };
+                     
+                     // --- NEW: Update sliders and inputs based on file range ---
+                     if (experimentalData.tth.length > 0) {
+                        let fileMin2T = Math.min(...experimentalData.tth);
+                        let fileMax2T = Math.max(...experimentalData.tth);
+
+                        // Get slider constraints
+                        const minSliderMin = parseFloat(uiElements.min2ThetaSlider.min);
+                        const minSliderMax = parseFloat(uiElements.min2ThetaSlider.max);
+                        const maxSliderMin = parseFloat(uiElements.max2ThetaSlider.min);
+                        const maxSliderMax = parseFloat(uiElements.max2ThetaSlider.max);
+
+                        // Clamp values to be within slider limits
+                        let finalMin2T = Math.max(minSliderMin, Math.min(minSliderMax, fileMin2T));
+                        let finalMax2T = Math.min(maxSliderMax, Math.max(maxSliderMin, fileMax2T));
+
+                        // Ensure min is not >= max (with a small step)
+                        if (finalMin2T >= finalMax2T) {
+                             // Reset min and max based on file data, clamped
+                             finalMin2T = Math.max(minSliderMin, Math.min(minSliderMax, fileMin2T));
+                             finalMax2T = Math.min(maxSliderMax, Math.max(maxSliderMin, fileMax2T));
+                             // If still overlapping, just force a small range
+                             if (finalMin2T >= finalMax2T) {
+                                 finalMax2T = finalMin2T + 0.1;
+                                 if(finalMax2T > maxSliderMax) {
+                                     finalMin2T = maxSliderMax - 0.1;
+                                     finalMax2T = maxSliderMax;
+                                 }
+                             }
+                        }
+
+                        // Update all min controls
+                        uiElements.min2ThetaSlider.value = finalMin2T;
+                        uiElements.min2ThetaValue.textContent = finalMin2T.toFixed(2);
+                        uiElements.min2ThetaNum.value = finalMin2T;
+
+                        // Update all max controls
+                        uiElements.max2ThetaSlider.value = finalMax2T;
+                        uiElements.max2ThetaValue.textContent = finalMax2T.toFixed(2);
+                        uiElements.max2ThetaNum.value = finalMax2T;
+                    }
+                    
+
                      if (!hklChart) { initializeChart(); }
                      const expPoints = experimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, experimentalData.intensity[i]) }));
                      hklChart.data.datasets[1].data = expPoints;
-                     rescaleChartAxes();
-                     updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2);
+                     
+                     const newYScale = rescaleChartAxes(); // Get new scale
+                     updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2, newYScale); // Pass new scale
+                     
                      hklChart.update('none');
                  } catch (error) { console.error("Error loading experimental data:", error); alert(`Error loading file: ${error.message}`); experimentalData = { tth: [], intensity: [] }; uiElements.expFileName.textContent = "Error loading file!"; if (hklChart) { hklChart.data.datasets[1].data = []; if (currentHKLList_ka1.length === 0 && !currentSpaceGroup) { uiElements.placeholder.classList.remove('hidden'); uiElements.chartContainer.classList.add('hidden'); hklChart.destroy(); hklChart = null; } else { rescaleChartAxes(); hklChart.update('none'); } }
                  } finally { e.target.value = null; }
@@ -883,15 +1032,13 @@
                      return;
                  }
 
-                // --- MODIFICATION: Add URL and Footer to saved file ---
+                //  Add URL and Footer to saved file ---
                 const footerText = "IndexMan, version 29 oct 2025";
                 let fileContent = `# URL: ${window.location.href}\n`;
                 fileContent += `# ${footerText}\n`;
                 fileContent += `# =============================================\n`;
                 fileContent += `# HKL Simulation Results\n`;
-                // --- END MODIFICATION ---
-				
-                // --- MODIFIED (Request 3): Define settingIndex inside this function's scope
+
                 const settingIndex = parseInt(uiElements.settingSelect.value) >= 0 ? parseInt(uiElements.settingSelect.value) : 0;
                 const setting = currentSpaceGroup?.settings[settingIndex] || currentSpaceGroup?.settings[0];
                 const sgSymbol = setting?.symbol || currentSpaceGroup?.standard_symbol || 'N/A';
@@ -899,7 +1046,6 @@
 
                 fileContent += `# Space Group: ${sgSymbol}${settingDesc}\n`;
 
-                 // *** ADDED: Format and Add Reflection Conditions ***
                  let conditionsString = "# Reflection Conditions: ";
                  const conditions = setting?.reflection_conditions;
                  if (conditions && Object.keys(conditions).length > 0) {
@@ -914,7 +1060,6 @@
                      conditionsString += "None (P1 or check setting)";
                  }
                  fileContent += conditionsString + "\n";
-                 // *** END ADDED ***
 
                 const params = getCurrentParameters();
                 if(params) {
@@ -928,9 +1073,7 @@
                 }
                 fileContent += `# Range (2theta): ${uiElements.min2ThetaNum.value} - ${uiElements.max2ThetaNum.value}\n`;
                 fileContent += `# Columns: h k l d_spacing(A) 2theta(deg) Source\n`;
-                // fileContent += `# =============================================\n`; // <-- This line is now redundant
 
-                // --- MODIFICATION: Combine, sort, and then write HKLs ---
                 
                 const combinedList = [];
                 
@@ -958,9 +1101,9 @@
                     fileContent += `${hStr} ${kStr} ${lStr} ${hkl.d.toFixed(5).padStart(12)} ${hkl.tth.toFixed(4).padStart(12)} ${hkl.source}\n`;
                 });
                 
-                // --- END MODIFICATION ---
+    
 
-                /* // OLD CODE that was replaced:
+                /* // OLD CODE , replaced on 29 oct
                 hklLists.forEach(({ list, source }) => {
                     if (list.length > 0) {
                         list.forEach(hkl => {
@@ -996,19 +1139,35 @@
              // Set initial slider text and hidden input values
              uiElements.min2ThetaNum.value = uiElements.min2ThetaSlider.value;
              uiElements.max2ThetaNum.value = uiElements.max2ThetaSlider.value;
-             // --- MODIFIED (Request 4): Use toFixed(2) for consistency
+          
              uiElements.min2ThetaValue.textContent = parseFloat(uiElements.min2ThetaSlider.value).toFixed(2);
              uiElements.max2ThetaValue.textContent = parseFloat(uiElements.max2ThetaSlider.value).toFixed(2);
              // Trigger initial wavelength setup
              handleWavelengthChange();
+             
+           --
+             const tooltipIcon = document.getElementById('tooltip-icon');
+             const tooltipText = document.getElementById('tooltip-text');
+             
+             if (tooltipIcon && tooltipText) {
+                tooltipIcon.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevents the document click from firing
+                    tooltipText.classList.toggle('visible');
+                });
+
+                document.addEventListener('click', (e) => {
+                    if (tooltipText.classList.contains('visible') && 
+                        !tooltipIcon.contains(e.target) && 
+                        !tooltipText.contains(e.target)) 
+                    {
+                        tooltipText.classList.remove('visible');
+                    }
+                });
+             }
+             
         });
     </script>
 
 </body>
 </html>
-
-
-
-
-
 
