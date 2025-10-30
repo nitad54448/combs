@@ -552,117 +552,172 @@
                  return params;
             }
 
-            const generateHKL_for_indexing = (maxTth, params, system, lambda) => {
-                const { a, b, c, beta } = params;
-                if (!a || !lambda) return [];
-                const reflections = [];
-                const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
-                const q_max_limit = (1 / (d_min * d_min)) * 1.05;
-                const h_max = Math.ceil(a / d_min) + 1; // +1 to ensure boundary is covered
-                const k_max = b ? Math.ceil(b / d_min) + 1 : h_max;
-                const l_max = c ? Math.ceil(c / d_min) + 1 : h_max;
+function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = null) {
+    const { a, b, c, alpha, beta, gamma } = params;
+    if (!a || !lambda) return [];
 
-                if (system === 'monoclinic') {
-                    const sinBeta = Math.sin(beta * Math.PI / 180);
-                    const cosBeta = Math.cos(beta * Math.PI / 180);
-                    const sinBetaSq = sinBeta * sinBeta;
-                    if (sinBetaSq < 1e-6) return []; // Avoid division by zero
+    const reflections = [];
+    const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
+    const q_max_limit = (1 / (d_min * d_min)) * 1.05;
 
-                    for (let h = -h_max; h <= h_max; h++) {
-                        // ---   Start k from 0, since d(h,k,l) = d(h,-k,l)
-                        for (let k = 0; k <= k_max; k++) { 
-                            for (let l = -l_max; l <= l_max; l++) {
-                                if (h === 0 && k === 0 && l === 0) continue;
-                                const inv_d_sq = (1 / sinBetaSq) * (h * h / (a * a) + l * l / (c * c) - 2 * h * l * cosBeta / (a * c)) + k * k / (b * b);
-                                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
-                                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-                                if (sinThetaSq > 0 && sinThetaSq <= 1) {
-                                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-                                    reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
-                                }
-                            }
-                        }
-                    }
-                } else if (system === 'triclinic') {
-                    const cosAlpha = Math.cos(params.alpha * Math.PI / 180);
-                    const cosBeta = Math.cos(params.beta * Math.PI / 180);
-                    const cosGamma = Math.cos(params.gamma * Math.PI / 180);
-                    const sinAlpha = Math.sin(params.alpha * Math.PI / 180);
-                    const sinBeta = Math.sin(params.beta * Math.PI / 180);
-                    const sinGamma = Math.sin(params.gamma * Math.PI / 180);
+    const h_max = Math.ceil(a / d_min) + 1;
+    const k_max = b ? Math.ceil(b / d_min) + 1 : h_max;
+    const l_max = c ? Math.ceil(c / d_min) + 1 : h_max;
 
-                    const V_sq = (params.a * params.b * params.c)**2 * (1 - cosAlpha**2 - cosBeta**2 - cosGamma**2 + 2 * cosAlpha * cosBeta * cosGamma);
-                    if (V_sq < 1e-6) return [];
+    // ---- Centering rules ----
+    function passesCentering(h, k, l) {
+        const sym = (setting?.symbol || "").toUpperCase();
+        if (sym.startsWith("I")) {
+            return (h + k + l) % 2 === 0;
+        }
+        if (sym.startsWith("F")) {
+            const ph = ((h % 2) + 2) % 2;
+            const pk = ((k % 2) + 2) % 2;
+            const pl = ((l % 2) + 2) % 2;
+            return (ph === pk && pk === pl);
+        }
+        if (sym.startsWith("C")) {
+            return (h + k) % 2 === 0;
+        }
+        if (sym.startsWith("A")) {
+            return (k + l) % 2 === 0;
+        }
+        if (sym.startsWith("B")) {
+            return (h + l) % 2 === 0;
+        }
+        return true; // P, R, etc.
+    }
 
-                    const A = (params.b * params.c * sinAlpha)**2 / V_sq;
-                    const B = (params.a * params.c * sinBeta)**2 / V_sq;
-                    const C = (params.a * params.b * sinGamma)**2 / V_sq;
-                    const D = 2 * params.b * params.c**2 * params.a * (cosAlpha * cosBeta - cosGamma) / V_sq;
-                    const E = 2 * params.c * params.a**2 * params.b * (cosGamma * cosAlpha - cosBeta) / V_sq;
-                    const F = 2 * params.a * params.b**2 * params.c * (cosBeta * cosGamma - cosAlpha) / V_sq;
+    // ---- Friedel reduction (always keep one of hkl / -h-k-l) ----
+    function friedelCanonical(h, k, l) {
+        if (l < 0) return false;
+        if (l === 0 && k < 0) return false;
+        if (l === 0 && k === 0 && h < 0) return false;
+        return true;
+    }
 
-                    for (let h = -h_max; h <= h_max; h++) {
-                        for (let k = -k_max; k <= k_max; k++) {
-                            //  Start l from 0
-                            for (let l = 0; l <= l_max; l++) {
-                                // -Apply convention to remove Friedel duplicates
-                                // Enforce l>=0. If l=0, k>=0. If l=0, k=0, h>0.
-                                if (l === 0) {
-                                    if (k < 0) continue; // if l=0, k>=0
-                                    if (k === 0 && h <= 0) continue; // if l=0, k=0, h>0
-                                }
-                                if (h === 0 && k === 0 && l === 0) continue; // Already covered, but safe
-                             
-                                
-                                const inv_d_sq = A * h * h + B * k * k + C * l * l + D * k * l + E * h * l + F * h * k;
-                                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
-                                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-                                if (sinThetaSq > 0 && sinThetaSq <= 1) {
-                                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-                                    reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
-                                }
-                            }
-                        }
-                    }
+    // ---- Laue class canonicalization ----
+    function isCanonical(h, k, l) {
+        if (!friedelCanonical(h, k, l)) return false;
+        const laue = (laueClass || "").toLowerCase();
 
-                } else { // Orthorhombic, Tetragonal, Cubic, Hexagonal, Trigonal
-					for (let h = 0; h <= h_max; h++) {
-				        const k_start = (system === 'orthorhombic') ? 0 : ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') ? 0 : -k_max);
-				        for (let k = k_start; k <= k_max; k++) {
-				            if ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') && k > h && k > 0) continue;
-				            
-				            // --- erreur avant le 29 oct
-				            // This fixes the (1,0,1) vs (1,0,-1) issue for hexagonal
-				            const l_start = 0; 
-				            for (let l = l_start; l <= l_max; l++) {
-				                if (system === 'cubic' && l > k && l > 0) continue;
-				                if (h === 0 && k === 0 && l === 0) continue;
+        switch (laue) {
+            case "1":
+            case "-1":
+                return true; // triclinic
 
-				                let inv_d_sq = 0;
-				                switch (system) {
-				                    case 'cubic': inv_d_sq = (h * h + k * k + l * l) / (a * a); break;
-				                    case 'tetragonal': inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c * c); break;
-				                    case 'orthorhombic': inv_d_sq = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c); break;
-				                    
-				                                    case 'hexagonal': case 'trigonal':
-				                                        // Standard hexagonal indexing allows negative k, but often represented with h, k, i=-h-k, l
-				                                        // For simplicity in calculation, use h,k,l and apply (4/3)*(h^2+hk+k^2)/a^2
-				                                        inv_d_sq = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
-				                                        break;
-				                                    default: continue; // Should not happen
-				                                }
-				                                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
-				                                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-				                                if (sinThetaSq > 0 && sinThetaSq <= 1) {
-				                                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-				                                    reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
-				                                }
-				                            }
-				                        }
-				                    }
-				                }
-                return reflections.sort((a, b) => a.tth - b.tth);
-            };
+            case "2/m": {
+                const ua = (setting?.unique_axis || 'b').toLowerCase();
+                if (ua === 'b') {
+                    if (k < 0) return false;
+                } else if (ua === 'c') {
+                    if (h < 0) return false;
+                    if (h === 0 && k < 0) return false;
+                } else if (ua === 'a') {
+                    if (h < 0) return false;
+                }
+                return true;
+            }
+
+            case "mmm":
+                if (h < 0 || k < 0) return false;
+                return true;
+
+            case "4/m":
+            case "4/mmm":
+                if (Math.abs(h) < Math.abs(k)) return false;
+                if (h < 0) return false;
+                if (Math.abs(h) === Math.abs(k) && k < 0) return false;
+                return true;
+
+            case "-3":
+            case "-3m":
+            case "6/m":
+            case "6/mmm":
+                if (h < 0) return false;
+                if (h === 0 && k < 0) return false;
+                return true;
+
+            case "m-3":
+            case "m-3m":
+                const ah = Math.abs(h), ak = Math.abs(k), al = Math.abs(l);
+                if (!(ah >= ak && ak >= al)) return false;
+                if (h < 0) return false;
+                if (ah === ak && k < 0) return false;
+                if (ak === al && l < 0) return false;
+                return true;
+
+            default:
+                return true;
+        }
+    }
+
+    // ---- d*2 formulas ----
+    function inv_d_sq_for(h, k, l) {
+        switch ((laueClass || "").toLowerCase()) {
+            case "m-3":
+            case "m-3m":
+                return (h*h + k*k + l*l) / (a*a);
+            case "4/m":
+            case "4/mmm":
+                return (h*h + k*k) / (a*a) + (l*l) / (c*c);
+            case "mmm":
+                return (h*h) / (a*a) + (k*k) / (b*b) + (l*l) / (c*c);
+            case "-3":
+            case "-3m":
+            case "6/m":
+            case "6/mmm":
+                return (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c);
+            case "2/m": {
+                const sb = Math.sin(beta * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180);
+                const sb2 = sb*sb;
+                if (sb2 < 1e-12) return 0;
+                return (1/sb2) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cb/(a*c)) + (k*k)/(b*b);
+            }
+            case "1":
+            case "-1": {
+                const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
+                const sa = Math.sin(alpha * Math.PI / 180), sb = Math.sin(beta * Math.PI / 180), sg = Math.sin(gamma * Math.PI / 180);
+                const V2 = (a*b*c)**2 * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+                if (V2 < 1e-12) return 0;
+                const A = (b*c*sa)**2 / V2;
+                const B = (a*c*sb)**2 / V2;
+                const C = (a*b*sg)**2 / V2;
+                const D = 2 * a*b*c*c * (ca*cb - cg) / V2;
+                const E = 2 * a*a*b*c * (cg*ca - cb) / V2;
+                const F = 2 * a*b*b*c * (cb*cg - ca) / V2;
+                return A*h*h + B*k*k + C*l*l + D*k*l + E*h*l + F*h*k;
+            }
+            default:
+                return 0;
+        }
+    }
+
+    // ---- enumeration ----
+    for (let h = -h_max; h <= h_max; h++) {
+        for (let k = -k_max; k <= k_max; k++) {
+            for (let l = -l_max; l <= l_max; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+                if (!isCanonical(h, k, l)) continue;
+                if (!passesCentering(h, k, l)) continue;
+
+                const inv_d_sq = inv_d_sq_for(h, k, l);
+                if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
+
+                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+                if (sinThetaSq <= 0 || sinThetaSq > 1) continue;
+
+                const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                reflections.push({ tth, h, k, l, d: 1 / Math.sqrt(inv_d_sq), lambda_source: lambda });
+            }
+        }
+    }
+
+    return reflections.sort((a, b) => a.tth - b.tth);
+}
+
+
+
 
 
             const satisfiesCondition = (h_in, k_in, l_in, condStr) => {
@@ -831,57 +886,88 @@
                 hklChart.data.datasets[2].data = markerData_ka2;
             }
 
-            const calculateAndDrawHKLs = () => {
-                if (!hklChart && (currentSpaceGroup || experimentalData.tth.length > 0)) { initializeChart(); }
-                if (!currentSpaceGroup) { currentHKLList_ka1 = []; currentHKLList_ka2 = []; if(hklChart) { updateChartMarkers([],[]); rescaleChartAxes(); hklChart.update('none'); } uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Enter Valid Space Group"; return; }
-                const params = getCurrentParameters();
-                const min2T = parseFloat(uiElements.min2ThetaNum.value);
-                const max2T = parseFloat(uiElements.max2ThetaNum.value);
-                if (!params || isNaN(min2T) || isNaN(max2T)) { currentHKLList_ka1 = []; currentHKLList_ka2 = []; if(hklChart) { updateChartMarkers([],[]); rescaleChartAxes(); hklChart.update('none'); } uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Invalid Parameters"; return; }
+const calculateAndDrawHKLs = () => {
+    if (!hklChart && (currentSpaceGroup || experimentalData.tth.length > 0)) {
+        initializeChart();
+    }
 
-                console.log("Calculating HKLs with params:", params, "Range:", min2T, "-", max2T);
-                
-                const settingIndex = parseInt(uiElements.settingSelect.value) >= 0 ? parseInt(uiElements.settingSelect.value) : 0; const setting = currentSpaceGroup.settings[settingIndex] || currentSpaceGroup.settings[0]; const conditions = setting?.reflection_conditions || {};
-                
-                const filterHKLs = (hkl_list) => {
-                    return hkl_list.filter(refl => {
-                        if (refl.tth < min2T || refl.tth > max2T) return false;
-                        let isAllowed = true;
-                        const zone = getReflectionZone(refl.h, refl.k, refl.l);
-                        const zoneConditions = conditions[zone] || [];
-                        const generalConditions = conditions['hkl'] || [];
-                        const allApplicableConditions = [...zoneConditions, ...generalConditions];
-                        
-                        const uniqueConditions = new Set(allApplicableConditions); 
+    if (!currentSpaceGroup) {
+        currentHKLList_ka1 = [];
+        currentHKLList_ka2 = [];
+        if (hklChart) {
+            updateChartMarkers([], []);
+            rescaleChartAxes();
+            hklChart.update('none');
+        }
+        uiElements.saveButton.disabled = true;
+        uiElements.saveButton.textContent = "Enter Valid Space Group";
+        return;
+    }
 
-                        for (const condStr of uniqueConditions) {
-                            if (!satisfiesCondition(refl.h, refl.k, refl.l, condStr)) {
-                                 isAllowed = false;
-                                 break;
-                            }
-                        }
-                        return isAllowed;
-                    });
-                };
-                
-                const allHKLs_ka1 = generateHKL_for_indexing(max2T, params, params.system, params.lambda);
-                currentHKLList_ka1 = filterHKLs(allHKLs_ka1);
-                console.log(`Generated ${allHKLs_ka1.length} Ka1 HKLs, ${currentHKLList_ka1.length} allowed in range.`);
-                
-                currentHKLList_ka2 = [];
-                if (params.lambda_ka2) {
-                    const allHKLs_ka2 = generateHKL_for_indexing(max2T, params, params.system, params.lambda_ka2);
-                    currentHKLList_ka2 = filterHKLs(allHKLs_ka2);
-                     console.log(`Generated ${allHKLs_ka2.length} Ka2 HKLs, ${currentHKLList_ka2.length} allowed in range.`);
+    const params = getCurrentParameters();
+    const min2T = parseFloat(uiElements.min2ThetaNum.value);
+    const max2T = parseFloat(uiElements.max2ThetaNum.value);
+    if (!params || isNaN(min2T) || isNaN(max2T)) {
+        currentHKLList_ka1 = [];
+        currentHKLList_ka2 = [];
+        if (hklChart) {
+            updateChartMarkers([], []);
+            rescaleChartAxes();
+            hklChart.update('none');
+        }
+        uiElements.saveButton.disabled = true;
+        uiElements.saveButton.textContent = "Invalid Parameters";
+        return;
+    }
+
+    console.log("Calculating HKLs with params:", params, "Range:", min2T, "-", max2T);
+
+    const settingIndex = parseInt(uiElements.settingSelect.value) >= 0 ? parseInt(uiElements.settingSelect.value) : 0;
+    const setting = currentSpaceGroup.settings?.[settingIndex] || currentSpaceGroup.settings?.[0] || null;
+    const conditions = setting?.reflection_conditions || {};
+
+    const laueClass = currentSpaceGroup.point_group; // e.g. "2/m", "mmm", "4/mmm", "m-3m"
+
+    const filterHKLs = (hkl_list) => {
+        return hkl_list.filter(refl => {
+            if (refl.tth < min2T || refl.tth > max2T) return false;
+            let isAllowed = true;
+            const zone = getReflectionZone(refl.h, refl.k, refl.l);
+            const zoneConditions = conditions[zone] || [];
+            const generalConditions = conditions['hkl'] || [];
+            const allApplicableConditions = [...zoneConditions, ...generalConditions];
+
+            const uniqueConditions = new Set(allApplicableConditions);
+            for (const condStr of uniqueConditions) {
+                if (!satisfiesCondition(refl.h, refl.k, refl.l, condStr)) {
+                    isAllowed = false;
+                    break;
                 }
+            }
+            return isAllowed;
+        });
+    };
 
-                if (hklChart) {
-                    const newYScale = rescaleChartAxes(); // Get new scale
-                    updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2, newYScale); // Pass new scale
-                    hklChart.update('none');
-                }
-                uiElements.saveButton.disabled = false; uiElements.saveButton.textContent = "Save HKL List";
-             };
+    const allHKLs_ka1 = generateHKL_for_indexing(max2T, params, laueClass, params.lambda, setting);
+    currentHKLList_ka1 = filterHKLs(allHKLs_ka1);
+
+    currentHKLList_ka2 = [];
+    if (params.lambda_ka2) {
+        const allHKLs_ka2 = generateHKL_for_indexing(max2T, params, laueClass, params.lambda_ka2, setting);
+        currentHKLList_ka2 = filterHKLs(allHKLs_ka2);
+    }
+
+    if (hklChart) {
+        const newYScale = rescaleChartAxes();
+        updateChartMarkers(currentHKLList_ka1, currentHKLList_ka2, newYScale);
+        hklChart.update('none');
+    }
+
+    uiElements.saveButton.disabled = false;
+    uiElements.saveButton.textContent = "Save HKL List";
+};
+
+
 
             const debouncedCalculate = debounce(calculateAndDrawHKLs, 300);
 
