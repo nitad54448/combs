@@ -388,7 +388,7 @@
             
             
             <footer id="app-footer">
-                IndexMan, version 29 oct 2025
+                IndexMan, version 30 oct 2025
             </footer>
         </div>
     </div>
@@ -432,75 +432,212 @@
 
             function findSpaceGroup(input) { if (!spaceGroupData || !input) return null; const searchTerm = input.trim().toLowerCase().replace(/\s+/g, '').replace('-', ''); if (/^\d+$/.test(searchTerm)) { const sgObject = spaceGroupData.space_groups[searchTerm]; if (sgObject) return sgObject; } for (const sgKey in spaceGroupData.space_groups) { const sg = spaceGroupData.space_groups[sgKey]; const stdSymbolNorm = sg.standard_symbol.toLowerCase().replace(/\s+/g, '').replace('-', ''); if (stdSymbolNorm === searchTerm) return sg; if (sg.settings) { for (const setting of sg.settings) { const settingSymbolNorm = setting.symbol.toLowerCase().replace(/\s+/g, '').replace('-', ''); if (settingSymbolNorm === searchTerm) return sg; } } } return null; }
 
-            function updateParameterInputs(system) {
-                const inputs = { a: uiElements.cellA, b: uiElements.cellB, c: uiElements.cellC, alpha: uiElements.cellAlpha, beta: uiElements.cellBeta, gamma: uiElements.cellGamma };
-                Object.values(inputs).forEach(input => {
-                    input.removeEventListener('input', debouncedCalculate);
-                    input.disabled = true; input.readOnly = true; input.style.opacity = 0.6;
-                    input.removeAttribute('listener-added');
-                });
-                inputs.alpha.value = 90.0; inputs.beta.value = 90.0; inputs.gamma.value = 90.0;
 
-                const setupListener = (inputElement) => {
-                    if (!inputElement.getAttribute('listener-added')) {
-                        inputElement.addEventListener('input', debouncedCalculate);
-                        inputElement.setAttribute('listener-added', 'true');
-                    }
-                };
-                const enable = (id, readOnly = false) => {
-                    inputs[id].disabled = false; inputs[id].readOnly = readOnly; inputs[id].style.opacity = 1;
-                    if (!readOnly) setupListener(inputs[id]);
-                };
+      
+const validateInputStyle = (input, min, max) => {
+    const valueStr = input.value.trim();
+    // Don't show error for empty or incomplete numbers
+    if (valueStr === '' || valueStr === '-' || valueStr === '.') {
+        input.classList.remove('error');
+        return;
+    }
+    try {
+        const value = parseFloat(valueStr);
+        if (isNaN(value) || value < min || value > max) {
+            input.classList.add('error'); // Show error
+        } else {
+            input.classList.remove('error'); // Valid
+        }
+    } catch (e) {
+        input.classList.add('error');
+    }
+};
 
-                switch (system) {
-                    case 'cubic':
-                        enable('a');
-                        inputs.a.addEventListener('input', () => {
-                            inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
-                            debouncedCalculate();
-                        });
-                        inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
-                        inputs.a.setAttribute('listener-added', 'true');
-                        break;
-                    case 'hexagonal': case 'trigonal':
-                        enable('a'); enable('c');
-                        inputs.gamma.value = 120.0;
-                        inputs.a.addEventListener('input', () => {
-                            inputs.b.value = inputs.a.value;
-                            debouncedCalculate();
-                        });
-                        inputs.b.value = inputs.a.value;
-                        inputs.a.setAttribute('listener-added', 'true');
-                        setupListener(inputs.c);
-                        break;
-                     case 'tetragonal':
-                        enable('a'); enable('c');
-                        inputs.a.addEventListener('input', () => {
-                            inputs.b.value = inputs.a.value;
-                            debouncedCalculate();
-                        });
-                        inputs.b.value = inputs.a.value;
-                        inputs.a.setAttribute('listener-added', 'true');
-                         setupListener(inputs.c);
-                        break;
-                    case 'orthorhombic':
-                        enable('a'); enable('b'); enable('c');
-                        break;
-                    case 'monoclinic':
-                        enable('a'); enable('b'); enable('c'); enable('beta');
-                        break;
-                    case 'triclinic':
-                        enable('a'); enable('b'); enable('c'); enable('alpha'); enable('beta'); enable('gamma');
-                        break;
-                }
+
+const validateAndRevert = (input, min, max, defaultValue) => {
+    const valueStr = input.value.trim();
+    try {
+        let value = parseFloat(valueStr);
+        // Check if invalid (NaN or out of bounds)
+        if (isNaN(value) || value < min || value > max) {
+            value = defaultValue; // Get default
+            input.value = defaultValue; // Set input field to default
+        }
+        input.classList.remove('error'); // Clear error style
+        return value; // Return the valid number
+    } catch (e) {
+        input.value = defaultValue; // Revert on any parse error
+        input.classList.remove('error');
+        return defaultValue;
+    }
+};
+
+
+function updateParameterInputs(system, settingDesc = null) {
+    const inputs = { a: uiElements.cellA, b: uiElements.cellB, c: uiElements.cellC, alpha: uiElements.cellAlpha, beta: uiElements.cellBeta, gamma: uiElements.cellGamma };
+    
+    // --- Define requested bounds ---
+    const bounds = {
+        a: { min: 1, max: 100, default: 5.0 },
+        b: { min: 1, max: 100, default: 5.0 },
+        c: { min: 1, max: 100, default: 5.0 },
+        alpha: { min: 20, max: 165, default: 90.0 },
+        beta: { min: 20, max: 165, default: 90.0 },
+        gamma: { min: 20, max: 165, default: 90.0 }
+    };
+
+    // Disable and clear all listeners first
+    Object.values(inputs).forEach(input => {
+        // Remove all listeners we might have added
+        input.removeEventListener('input', debouncedCalculate);
+        if (input._styleListener) {
+            input.removeEventListener('input', input._styleListener);
+            input._styleListener = null;
+        }
+        if (input._revertListener) {
+            input.removeEventListener('change', input._revertListener);
+            input._revertListener = null;
+        }
+        // Reset state
+        input.disabled = true; input.readOnly = true; input.style.opacity = 0.6;
+        input.removeAttribute('listener-added');
+        input.classList.remove('error'); 
+    });
+    
+    // Set all angles to 90 as a default before applying constraints
+    inputs.alpha.value = 90.0; inputs.beta.value = 90.0; inputs.gamma.value = 90.0;
+
+    // Helper function to add listeners
+    const setupListener = (inputElement) => {
+        if (!inputElement.getAttribute('listener-added')) {
+            // Get bounds for this specific input
+            const inputId = inputElement.id.replace('cell-', ''); // 'a', 'b', 'alpha', etc.
+            const b = bounds[inputId];
+            
+            if (b) {
+                // 1. Add live styling listener on 'input'
+                inputElement._styleListener = () => validateInputStyle(inputElement, b.min, b.max);
+                inputElement.addEventListener('input', inputElement._styleListener);
                 
-                 ['a', 'b', 'c', 'alpha', 'beta', 'gamma'].forEach(id => {
-                     if (!inputs[id].disabled && !inputs[id].readOnly && !inputs[id].getAttribute('listener-added')) {
-                         setupListener(inputs[id]);
-                     }
-                 });
-                 Object.values(inputs).forEach(input => { if (input.disabled || input.readOnly) { input.style.opacity = 0.6; }});
+                // 2. Add revert listener on 'change' (loss of focus)
+                inputElement._revertListener = () => {
+                    validateAndRevert(inputElement, b.min, b.max, b.default);
+                    // Also trigger calculation update *after* reverting
+                    debouncedCalculate(); 
+                };
+                inputElement.addEventListener('change', inputElement._revertListener);
             }
+            
+            // 3. Add calculation listener on 'input'
+            inputElement.addEventListener('input', debouncedCalculate);
+            
+            inputElement.setAttribute('listener-added', 'true');
+        }
+    };
+    
+    // Helper function to enable input
+    const enable = (id, readOnly = false) => {
+        inputs[id].disabled = false; inputs[id].readOnly = readOnly; inputs[id].style.opacity = 1;
+        if (!readOnly) {
+            setupListener(inputs[id]);
+            // Run initial validation style check
+            const b = bounds[id];
+            if (b) {
+                validateInputStyle(inputs[id], b.min, b.max);
+            }
+        }
+    };
+
+    // --- This switch logic is now correct ---
+    switch (system) {
+        case 'cubic':
+            enable('a');
+            // Link b and c to a
+            inputs.a.addEventListener('input', () => {
+                inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
+                // Validate linked inputs visually
+                validateInputStyle(inputs.b, bounds.b.min, bounds.b.max);
+                validateInputStyle(inputs.c, bounds.c.min, bounds.c.max);
+                // debouncedCalculate is already called by the 'a' input
+            });
+            inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
+            // Add 'change' listener for linked inputs
+            inputs.a.addEventListener('change', () => {
+                // When 'a' reverts, revert 'b' and 'c' too
+                inputs.b.value = inputs.a.value;
+                inputs.c.value = inputs.a.value;
+            });
+            inputs.a.setAttribute('listener-added', 'true'); // a listener setup in enable()
+            break;
+        case 'hexagonal': case 'trigonal':
+            enable('a'); enable('c');
+            inputs.gamma.value = 120.0; // Fixed gamma
+            // Link b to a
+            inputs.a.addEventListener('input', () => {
+                inputs.b.value = inputs.a.value;
+                // Validate linked input visually
+                validateInputStyle(inputs.b, bounds.b.min, bounds.b.max);
+            });
+            inputs.b.value = inputs.a.value;
+            // Add 'change' listener for linked inputs
+            inputs.a.addEventListener('change', () => {
+                inputs.b.value = inputs.a.value;
+            });
+            inputs.a.setAttribute('listener-added', 'true');
+            setupListener(inputs.c);
+            break;
+         case 'tetragonal':
+            enable('a'); enable('c');
+            // Link b to a
+            inputs.a.addEventListener('input', () => {
+                inputs.b.value = inputs.a.value;
+                // Validate linked input visually
+                validateInputStyle(inputs.b, bounds.b.min, bounds.b.max);
+            });
+            inputs.b.value = inputs.a.value;
+            // Add 'change' listener for linked inputs
+            inputs.a.addEventListener('change', () => {
+                inputs.b.value = inputs.a.value;
+            });
+            inputs.a.setAttribute('listener-added', 'true');
+             setupListener(inputs.c);
+            break;
+        case 'orthorhombic':
+            enable('a'); enable('b'); enable('c');
+            break;
+        case 'monoclinic':
+            const uniqueAxis = settingDesc || 'b'; 
+            enable('a'); enable('b'); enable('c');
+            if (uniqueAxis === 'a') {
+                enable('alpha'); 
+                inputs.beta.value = 90.0; 
+                inputs.gamma.value = 90.0; 
+            } else if (uniqueAxis === 'c') {
+                enable('gamma'); 
+                inputs.alpha.value = 90.0; 
+                inputs.beta.value = 90.0; 
+            } else { // 'b'
+                enable('beta'); 
+                inputs.alpha.value = 90.0; 
+                inputs.gamma.value = 90.0; 
+            }
+            break;
+        case 'triclinic':
+            enable('a'); enable('b'); enable('c'); enable('alpha'); enable('beta'); enable('gamma');
+            break;
+    }
+    
+     // Ensure all enabled, non-readonly inputs have a listener
+     ['a', 'b', 'c', 'alpha', 'beta', 'gamma'].forEach(id => {
+         if (!inputs[id].disabled && !inputs[id].readOnly && !inputs[id].getAttribute('listener-added')) {
+             setupListener(inputs[id]);
+         }
+     });
+     // Style disabled/readonly inputs
+     Object.values(inputs).forEach(input => { if (input.disabled || input.readOnly) { input.style.opacity = 0.6; }});
+}
+
+
 
             function updateSettingsDropdown(sg) {
                 uiElements.settingSelect.innerHTML = '';
@@ -529,30 +666,118 @@
                 }
             }
 
+
             function getCurrentParameters() {
-                const system = currentSpaceGroup?.crystal_system;
-                const preset = uiElements.wavelengthPreset.value;
-                const plotKa2 = uiElements.plotKa2Checkbox.checked && preset !== 'custom';
+    const system = currentSpaceGroup?.crystal_system;
+    const preset = uiElements.wavelengthPreset.value;
+    const plotKa2 = uiElements.plotKa2Checkbox.checked && preset !== 'custom';
 
-                const lambda = plotKa2 && preset !== 'custom' ? WAVELENGTH_PRESETS[preset].ka1 : parseFloat(uiElements.wavelength.value);
-                
-                const params = {
-                    a: parseFloat(uiElements.cellA.value),
-                    b: (system === 'cubic' || system === 'tetragonal' || system === 'hexagonal' || system === 'trigonal') ? parseFloat(uiElements.cellA.value) : parseFloat(uiElements.cellB.value),
-                    c: (system === 'cubic') ? parseFloat(uiElements.cellA.value) : parseFloat(uiElements.cellC.value),
-                    alpha: (system === 'triclinic') ? parseFloat(uiElements.cellAlpha.value) : 90.0,
-                    beta: (system === 'monoclinic' || system === 'triclinic') ? parseFloat(uiElements.cellBeta.value) : 90.0,
-                    gamma: (system === 'hexagonal' || system === 'trigonal') ? 120.0 : (system === 'triclinic' ? parseFloat(uiElements.cellGamma.value) : 90.0),
-                    lambda: lambda,
-                    lambda_ka2: plotKa2 && preset !== 'custom' ? WAVELENGTH_PRESETS[preset].ka2 : null,
-                    system: system
-                };
-                
-                 if (isNaN(params.lambda) || params.lambda <= 0 || isNaN(params.a) || params.a <= 0 || isNaN(params.b) || params.b <= 0 || isNaN(params.c) || params.c <= 0 || isNaN(params.alpha) || params.alpha <= 0 || params.alpha >= 180 || isNaN(params.beta) || params.beta <= 0 || params.beta >= 180 || isNaN(params.gamma) || params.gamma <= 0 || params.gamma >= 180) { console.error("Invalid parameters:", params); return null; }
-                 return params;
+    // --- NEW: Check for errors and empty fields BEFORE parsing ---
+    let hasError = false;
+    let hasEmpty = false;
+    
+    const inputsToValidate = [
+        uiElements.cellA, uiElements.cellB, uiElements.cellC,
+        uiElements.cellAlpha, uiElements.cellBeta, uiElements.cellGamma,
+        uiElements.wavelength
+    ];
+    
+    for (const input of inputsToValidate) {
+        // Check only if input is *not* disabled
+        if (!input.disabled) {
+            if (input.classList.contains('error')) {
+                hasError = true;
+                break; // Found an error, no need to check others
             }
+            if (input.value.trim() === '') {
+                hasEmpty = true;
+                break; // Found an empty field, no need to check others
+            }
+        }
+    }
+    
+    if (hasError) {
+        console.warn("Calculation paused, invalid input detected.");
+        return null; // Stop calculation
+    }
+    if (hasEmpty) {
+        console.warn("Calculation paused, empty field detected.");
+        return null; // Stop calculation
+    }
+    
+    // --- Parse values (no revert) ---
+    // All inputs are now considered valid and non-empty
+    
+    let lambda_val = parseFloat(uiElements.wavelength.value);
+    let a_val = parseFloat(uiElements.cellA.value);
+    let b_val, c_val, alpha_val, beta_val, gamma_val;
 
-function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = null) {
+    // Start with default values
+    b_val = parseFloat(uiElements.cellB.value); 
+    c_val = parseFloat(uiElements.cellC.value); 
+    alpha_val = 90.0;
+    beta_val = 90.0;
+    gamma_val = 90.0;
+
+    // Adjust based on system
+    if (system === 'cubic') {
+        b_val = a_val; 
+        c_val = a_val; 
+    } else if (system === 'hexagonal' || system === 'trigonal') {
+        b_val = a_val; 
+        c_val = parseFloat(uiElements.cellC.value);
+        gamma_val = 120.0;
+    } else if (system === 'tetragonal') {
+        b_val = a_val; 
+        c_val = parseFloat(uiElements.cellC.value);
+    } else if (system === 'orthorhombic') {
+        b_val = parseFloat(uiElements.cellB.value);
+        c_val = parseFloat(uiElements.cellC.value);
+    } else if (system === 'monoclinic') {
+        b_val = parseFloat(uiElements.cellB.value);
+        c_val = parseFloat(uiElements.cellC.value);
+
+        const settingIndex = parseInt(uiElements.settingSelect.value) >= 0 ? parseInt(uiElements.settingSelect.value) : 0;
+        const settingDesc = currentSpaceGroup.settings?.[settingIndex]?.description || 'b';
+        if (settingDesc === 'a') {
+            alpha_val = parseFloat(uiElements.cellAlpha.value);
+        } else if (settingDesc === 'c') {
+            gamma_val = parseFloat(uiElements.cellGamma.value);
+        } else { // 'b'
+            beta_val = parseFloat(uiElements.cellBeta.value);
+        }
+    } else if (system === 'triclinic') {
+        b_val = parseFloat(uiElements.cellB.value);
+        c_val = parseFloat(uiElements.cellC.value);
+        alpha_val = parseFloat(uiElements.cellAlpha.value);
+        beta_val = parseFloat(uiElements.cellBeta.value);
+        gamma_val = parseFloat(uiElements.cellGamma.value);
+    } else {
+        // No valid system
+        b_val = parseFloat(uiElements.cellB.value);
+        c_val = parseFloat(uiElements.cellC.value);
+    }
+    
+    const params = {
+        a: a_val, b: b_val, c: c_val,
+        alpha: alpha_val, beta: beta_val, gamma: gamma_val,
+        lambda: plotKa2 && preset !== 'custom' ? WAVELENGTH_PRESETS[preset].ka1 : lambda_val,
+        lambda_ka2: plotKa2 && preset !== 'custom' ? WAVELENGTH_PRESETS[preset].ka2 : null,
+        system: system
+    };
+    
+    // Final check for NaN (shouldn't happen, but good practice)
+    if (isNaN(params.lambda) || isNaN(params.a) || isNaN(params.b) || isNaN(params.c) || isNaN(params.alpha) || isNaN(params.beta) || isNaN(params.gamma)) {
+         console.error("NaN value detected after parsing."); 
+         return null; 
+    }
+     
+    return params;
+}
+
+
+
+    function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = null) {
     const { a, b, c, alpha, beta, gamma } = params;
     if (!a || !lambda) return [];
 
@@ -589,68 +814,90 @@ function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = n
     }
 
     // ---- Friedel reduction (always keep one of hkl / -h-k-l) ----
-    function friedelCanonical(h, k, l) {
-        if (l < 0) return false;
-        if (l === 0 && k < 0) return false;
-        if (l === 0 && k === 0 && h < 0) return false;
-        return true;
-    }
+    // *** REMOVED incorrect friedelCanonical function ***
 
     // ---- Laue class canonicalization ----
     function isCanonical(h, k, l) {
-        if (!friedelCanonical(h, k, l)) return false;
+        // This function combines Friedel's Law (hkl vs -h-k-l)
+        // and Laue class symmetry (e.g., hkl vs h-kl)
+        // to return only one reflection from the set of
+        // symmetry-equivalent reflections for powder diffraction.
+
         const laue = (laueClass || "").toLowerCase();
 
         switch (laue) {
             case "1":
-            case "-1":
-                return true; // triclinic
+            case "-1": // triclinic
+                // Friedel reduction only: l>0 or (l=0, k>0) or (l=0, k=0, h>=0)
+                if (l < 0) return false;
+                if (l === 0 && k < 0) return false;
+                if (l === 0 && k === 0 && h < 0) return false;
+                return true;
 
             case "2/m": {
-                const ua = (setting?.unique_axis || 'b').toLowerCase();
-                if (ua === 'b') {
+                const ua = (setting?.description || 'b').toLowerCase(); // Use description
+                if (ua === 'b') { // Unique axis b. Equivalents: (h,k,l), (h,-k,l), (-h,k,-l), (-h,-k,-l)
+                    // Standard reduction: k >= 0, l >= 0. If l=0, h >= 0.
                     if (k < 0) return false;
-                } else if (ua === 'c') {
+                    if (l < 0) return false;
+                    if (l === 0 && h < 0) return false;
+                    return true;
+                } else if (ua === 'c') { // Unique axis c. Equivalents: (h,k,l), (h,k,-l), (-h,-k,l), (-h,-k,-l)
+                    // Standard reduction: l >= 0, k >= 0. If k=0, h >= 0.
+                    if (l < 0) return false;
+                    if (k < 0) return false;
+                    if (k === 0 && h < 0) return false;
+                    return true;
+                } else if (ua === 'a') { // Unique axis a. Equivalents: (h,k,l), (-h,k,l), (h,-k,-l), (-h,-k,-l)
+                    // Standard reduction: h >= 0, l >= 0. If l=0, k >= 0.
                     if (h < 0) return false;
-                    if (h === 0 && k < 0) return false;
-                } else if (ua === 'a') {
-                    if (h < 0) return false;
+                    if (l < 0) return false;
+                    if (l === 0 && k < 0) return false;
+                    return true;
                 }
-                return true;
+                return true; // Should not be reached
             }
 
             case "mmm":
-                if (h < 0 || k < 0) return false;
+                // h>=0, k>=0, l>=0
+                if (h < 0 || k < 0 || l < 0) return false;
                 return true;
 
             case "4/m":
             case "4/mmm":
-                if (Math.abs(h) < Math.abs(k)) return false;
-                if (h < 0) return false;
-                if (Math.abs(h) === Math.abs(k) && k < 0) return false;
+                // l>=0, h>=k, k>=0
+                if (l < 0) return false;
+                if (k < 0) return false;
+                if (h < k) return false;
                 return true;
 
             case "-3":
             case "-3m":
             case "6/m":
             case "6/mmm":
-                if (h < 0) return false;
-                if (h === 0 && k < 0) return false;
+                 // l>=0 and (h>=k>=0)
+                if (l < 0) return false;
+                if (k < 0) return false;
+                // For hex, h>=k>=0 is a common reduction
+                if (h < k) return false; 
                 return true;
 
             case "m-3":
             case "m-3m":
-                const ah = Math.abs(h), ak = Math.abs(k), al = Math.abs(l);
-                if (!(ah >= ak && ak >= al)) return false;
-                if (h < 0) return false;
-                if (ah === ak && k < 0) return false;
-                if (ak === al && l < 0) return false;
+                // h>=k>=l>=0
+                if (l < 0) return false;
+                if (k < l) return false;
+                if (h < k) return false;
                 return true;
 
-            default:
+            default: // Failsafe, same as triclinic
+                if (l < 0) return false;
+                if (l === 0 && k < 0) return false;
+                if (l === 0 && k === 0 && h < 0) return false;
                 return true;
         }
     }
+
 
     // ---- d*2 formulas ----
     function inv_d_sq_for(h, k, l) {
@@ -669,24 +916,56 @@ function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = n
             case "6/mmm":
                 return (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c);
             case "2/m": {
-                const sb = Math.sin(beta * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180);
-                const sb2 = sb*sb;
-                if (sb2 < 1e-12) return 0;
-                return (1/sb2) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cb/(a*c)) + (k*k)/(b*b);
+                const uniqueAxis = setting?.description || 'b';
+
+                if (uniqueAxis === 'b') {
+                    const sb = Math.sin(beta * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180);
+                    const sb2 = sb*sb;
+                    if (sb2 < 1e-12) return 0;
+                    // Standard formula for unique axis 'b'
+                    return (1/sb2) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cb/(a*c)) + (k*k)/(b*b);
+                } else {
+                     // Use the general triclinic formula for unique axis 'a' or 'c'.
+                     // This is always correct, even if alpha/beta/gamma are 90.
+                    const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
+                    const sa = Math.sin(alpha * Math.PI / 180), sb = Math.sin(beta * Math.PI / 180), sg = Math.sin(gamma * Math.PI / 180);
+                    const V2 = (a*b*c)**2 * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+                    if (V2 < 1e-12) return 0;
+                    const A = (b*c*sa)**2 / V2;
+                    const B = (a*c*sb)**2 / V2;
+                    const C = (a*b*sg)**2 / V2;
+                    const D = 2 * a*b*c*c * (ca*cb - cg) / V2;
+                    const E = 2 * a*b*b*c * (cg*ca - cb) / V2; 
+                    const F = 2 * a*a*b*c * (cb*cg - ca) / V2; 
+                    
+                    // 1/d^2 = h^2(A) + k^2(B) + l^2(C) + hk(D) + hl(E) + kl(F)
+                    return A*h*h + B*k*k + C*l*l + D*h*k + E*h*l + F*k*l; 
+                }
             }
             case "1":
             case "-1": {
                 const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
                 const sa = Math.sin(alpha * Math.PI / 180), sb = Math.sin(beta * Math.PI / 180), sg = Math.sin(gamma * Math.PI / 180);
+                
+                // Volume squared
                 const V2 = (a*b*c)**2 * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
                 if (V2 < 1e-12) return 0;
+
+                // a*^2, b*^2, c*^2
                 const A = (b*c*sa)**2 / V2;
                 const B = (a*c*sb)**2 / V2;
                 const C = (a*b*sg)**2 / V2;
+                
+                // D = 2 * a* * b* * cos(gamma*)
                 const D = 2 * a*b*c*c * (ca*cb - cg) / V2;
-                const E = 2 * a*a*b*c * (cg*ca - cb) / V2;
-                const F = 2 * a*b*b*c * (cb*cg - ca) / V2;
-                return A*h*h + B*k*k + C*l*l + D*k*l + E*h*l + F*h*k;
+                
+                // E = 2 * a* * c* * cos(beta*)
+                const E = 2 * a*b*b*c * (cg*ca - cb) / V2; 
+                
+                // F = 2 * b* * c* * cos(alpha*)
+                const F = 2 * a*a*b*c * (cb*cg - ca) / V2; 
+                
+                return A*h*h + B*k*k + C*l*l + D*h*k + E*h*l + F*k*l; 
             }
             default:
                 return 0;
@@ -971,45 +1250,127 @@ const calculateAndDrawHKLs = () => {
 
             const debouncedCalculate = debounce(calculateAndDrawHKLs, 300);
 
-            uiElements.sgInput.addEventListener('input', () => {
-                const inputText = uiElements.sgInput.value; currentSpaceGroup = findSpaceGroup(inputText); uiElements.sgInput.classList.remove('error');
-                if (currentSpaceGroup) {
-                    if (!hklChart && experimentalData.tth.length == 0) { initializeChart(); }
-                    else if (!hklChart && experimentalData.tth.length > 0){ initializeChart(); const expPoints = experimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, experimentalData.intensity[i]) })); hklChart.data.datasets[1].data = expPoints; }
-                    uiElements.systemDisplay.textContent = currentSpaceGroup.crystal_system.charAt(0).toUpperCase() + currentSpaceGroup.crystal_system.slice(1);
-                    updateParameterInputs(currentSpaceGroup.crystal_system); updateSettingsDropdown(currentSpaceGroup); debouncedCalculate();
-                } else {
-                     uiElements.systemDisplay.textContent = "-"; updateParameterInputs(null); updateSettingsDropdown(null); currentHKLList_ka1 = []; currentHKLList_ka2 = [];
-                    if(hklChart) {
-                        updateChartMarkers([], []);
-                        rescaleChartAxes();
-                        if (experimentalData.tth.length === 0) { uiElements.placeholder.classList.remove('hidden'); uiElements.chartContainer.classList.add('hidden'); hklChart.destroy(); hklChart = null; }
-                        else { hklChart.update('none'); }
-                    }
-                    uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Enter Valid Space Group"; if (inputText.trim() !== "") uiElements.sgInput.classList.add('error');
-                 }
-            });
+// --- 2. REPLACE your existing 'sgInput.addEventListener' block with this one ---
+// This version is modified to pass the *default* setting description
+// to 'updateParameterInputs' when a new space group is entered.
+uiElements.sgInput.addEventListener('input', () => {
+    const inputText = uiElements.sgInput.value; currentSpaceGroup = findSpaceGroup(inputText); uiElements.sgInput.classList.remove('error');
+    if (currentSpaceGroup) {
+        if (!hklChart && experimentalData.tth.length == 0) { initializeChart(); }
+        else if (!hklChart && experimentalData.tth.length > 0){ initializeChart(); const expPoints = experimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, experimentalData.intensity[i]) })); hklChart.data.datasets[1].data = expPoints; }
+        
+        uiElements.systemDisplay.textContent = currentSpaceGroup.crystal_system.charAt(0).toUpperCase() + currentSpaceGroup.crystal_system.slice(1);
+        
+        // Update dropdown FIRST, so we can read the default setting
+        updateSettingsDropdown(currentSpaceGroup); 
+        
+        // Get default setting description (from setting 0)
+        const defaultSettingDesc = currentSpaceGroup.settings?.[0]?.description || (currentSpaceGroup.crystal_system === 'monoclinic' ? 'b' : null);
+        
+        // Call updateParameterInputs with the default setting description
+        updateParameterInputs(currentSpaceGroup.crystal_system, defaultSettingDesc); 
+        
+        debouncedCalculate();
+    } else {
+         uiElements.systemDisplay.textContent = "-"; updateParameterInputs(null); updateSettingsDropdown(null); currentHKLList_ka1 = []; currentHKLList_ka2 = [];
+        if(hklChart) {
+            updateChartMarkers([], []);
+            rescaleChartAxes();
+            if (experimentalData.tth.length === 0) { uiElements.placeholder.classList.remove('hidden'); uiElements.chartContainer.classList.add('hidden'); hklChart.destroy(); hklChart = null; }
+            else { hklChart.update('none'); }
+        }
+        uiElements.saveButton.disabled = true; uiElements.saveButton.textContent = "Enter Valid Space Group"; if (inputText.trim() !== "") uiElements.sgInput.classList.add('error');
+     }
+});
 
-             function handleWavelengthChange() {
-                 const preset = uiElements.wavelengthPreset.value;
-                 const plotKa2 = uiElements.plotKa2Checkbox.checked;
+// --- 3. ADD this NEW event listener for the 'space-group-setting' dropdown ---
+// This block was missing. It handles your Point 2 (resetting parameters)
+// and Point 1 (applying constraints for the new setting).
+uiElements.settingSelect.addEventListener('change', () => {
+    if (!currentSpaceGroup) return;
 
-                 if (preset === 'custom') {
-                     uiElements.wavelength.readOnly = false;
-                     uiElements.plotKa2Checkbox.checked = false;
-                     uiElements.plotKa2Checkbox.disabled = true;
-                 } else {
-                     const presetData = WAVELENGTH_PRESETS[preset];
-                     uiElements.wavelength.readOnly = true;
-                     uiElements.plotKa2Checkbox.disabled = false;
-                     if (plotKa2) {
-                         uiElements.wavelength.value = presetData.ka1.toFixed(5);
-                     } else {
-                         uiElements.wavelength.value = presetData.ka_avg.toFixed(5);
-                     }
-                 }
-                 debouncedCalculate();
-             }
+    // Point 2: Reset lattice parameters to default values
+    // (Using the defaults from your HTML 'value' attributes)
+    uiElements.cellA.value = "5.0";
+    uiElements.cellB.value = "5.0";
+    uiElements.cellC.value = "5.0";
+    uiElements.cellAlpha.value = "90.0";
+    uiElements.cellBeta.value = "90.0";
+    uiElements.cellGamma.value = "90.0";
+
+    // Point 1: Get new setting and update parameter constraints
+    const settingIndex = parseInt(uiElements.settingSelect.value);
+    if (settingIndex < 0) {
+        // This case might happen if the dropdown is reset
+        updateParameterInputs(currentSpaceGroup.crystal_system, null);
+        debouncedCalculate();
+        return;
+    }
+    
+    // Get the description ("a", "b", "c") for the selected setting
+    const setting = currentSpaceGroup.settings?.[settingIndex];
+    const settingDesc = setting?.description || (currentSpaceGroup.crystal_system === 'monoclinic' ? 'b' : null);
+
+    // Re-run updateParameterInputs with the NEW setting description
+    updateParameterInputs(currentSpaceGroup.crystal_system, settingDesc);
+    
+    // Recalculate HKLs with new setting
+    debouncedCalculate();
+});
+
+        function handleWavelengthChange() {
+    const preset = uiElements.wavelengthPreset.value;
+    const plotKa2 = uiElements.plotKa2Checkbox.checked;
+
+    const bounds = { min: 0.1, max: 5.0, default: 1.54184 };
+
+    // Remove old listeners if they exist
+    if (uiElements.wavelength._styleListener) {
+        uiElements.wavelength.removeEventListener('input', uiElements.wavelength._styleListener);
+        uiElements.wavelength._styleListener = null;
+    }
+    if (uiElements.wavelength._revertListener) {
+        uiElements.wavelength.removeEventListener('change', uiElements.wavelength._revertListener);
+        uiElements.wavelength._revertListener = null;
+    }
+
+    if (preset === 'custom') {
+        uiElements.wavelength.readOnly = false;
+        uiElements.plotKa2Checkbox.checked = false;
+        uiElements.plotKa2Checkbox.disabled = true;
+
+        // 1. Add live styling listener on 'input'
+        uiElements.wavelength._styleListener = () => validateInputStyle(uiElements.wavelength, bounds.min, bounds.max);
+        uiElements.wavelength.addEventListener('input', uiElements.wavelength._styleListener);
+        
+        // 2. Add revert listener on 'change'
+        uiElements.wavelength._revertListener = () => {
+            validateAndRevert(uiElements.wavelength, bounds.min, bounds.max, bounds.default);
+            debouncedCalculate(); // Recalculate after revert
+        };
+        uiElements.wavelength.addEventListener('change', uiElements.wavelength._revertListener);
+
+        // Run initial style check
+        validateInputStyle(uiElements.wavelength, bounds.min, bounds.max);
+
+    } else {
+        const presetData = WAVELENGTH_PRESETS[preset];
+        uiElements.wavelength.readOnly = true;
+        uiElements.plotKa2Checkbox.disabled = false;
+        if (plotKa2) {
+            uiElements.wavelength.value = presetData.ka1.toFixed(5);
+        } else {
+            uiElements.wavelength.value = presetData.ka_avg.toFixed(5);
+        }
+        uiElements.wavelength.classList.remove('error');
+    }
+    
+    // We *always* call debouncedCalculate to update,
+    // which will be stopped by getCurrentParameters if custom is invalid.
+    debouncedCalculate();
+}
+
+
              uiElements.wavelengthPreset.addEventListener('change', handleWavelengthChange);
              uiElements.plotKa2Checkbox.addEventListener('change', handleWavelengthChange);
              uiElements.wavelength.addEventListener('input', debouncedCalculate);
