@@ -88,7 +88,7 @@
         .slider-group {
             display: flex;
             align-items: center;
-            gap: 0.75rem; /* Gap between label and box */
+            gap: 0.5rem; /* Gap between label and box */
             margin-bottom: 0.75rem;
             
         }
@@ -107,7 +107,7 @@
             border: 1px solid var(--border-color);
             border-radius: 0.35rem;
             padding: 0.5rem 0.75rem;
-            height: 44px;
+            height: 32px;
             box-sizing: border-box;
             
             flex-grow: 1; /* Box fills remaining space */
@@ -132,16 +132,15 @@
             border-radius: 2px;
             appearance: none; -webkit-appearance: none; outline: none;
             margin: 0;
-            width: 100%; /* Explicitly set width */
+            width: 100%; 
         }
         input[type="range"].custom-slider::-webkit-slider-thumb {
             -webkit-appearance: none; appearance: none;
             width: 16px; height: 16px; 
-            /* --- MODIFICATION: Match image thumb --- */
-            background: #ffffff; /* Pure white fill */
+            background: #ffffff80; /* blanc; le 80 indique la transparence */
             border-radius: 50%;
             cursor: pointer;
-            border: 3px solid var(--primary-accent); /* Thicker blue border */
+            border: 2px solid var(--primary-accent); /* Thicker blue border */
             /* Add z-index to ensure thumb is on top of value */
             position: relative;
             z-index: 10;
@@ -149,7 +148,7 @@
         input[type="range"].custom-slider::-moz-range-thumb {
             width: 16px; height: 16px;
             
-            background: #ffffff; /* Pure white fill */
+            background: #ffffff80; /* Pure white fill; 50% tranparence */
             border-radius: 50%;
             cursor: pointer;
             border: 3px solid var(--primary-accent); /* Thicker blue border */
