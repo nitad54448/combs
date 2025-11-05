@@ -146,7 +146,7 @@
              <p>
                 To linearize the indexing equations, all peak positions are first converted from $2\theta$ to Q-space, where $Q = 1/d^2$. The relationship between $Q$, the Miller indices, and the reciprocal cell parameters ($A, B, C, D, E, F$) is given by the general quadratic form:
                 $$ Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk $$
-                The software solves for these reciprocal parameters and then converts them back to the real-space cell parameters for the final solution. Each trial cell is immediately refined and scored against the full peak list.
+                The software solves for these reciprocal parameters (or a subset of them, depending on the crystal system) and then converts them back to the real-space cell parameters for the final solution. Each trial cell is immediately refined and scored against the full peak list.
             </p>
         </section>
 
@@ -194,7 +194,7 @@
                 <li><strong>Impurity Peaks:</strong> Number of allowed un-indexed peaks among the first 20 when calculating M(20).</li>
                 <li><strong>2θ Error (°):</strong> Tolerance for matching calculated to observed peaks.</li>
                 <li><strong>Refine Zero-Point Error:</strong> Controls whether a full, unconstrained zero-point refinement is applied to the final reported solution.</li>
-                <li><strong>Crystal Systems to Search:</strong> Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, and Monoclinic systems.</li>
+                <li><strong>Crystal Systems to Search:</strong> Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, Monoclinic, and Triclinic systems.</li>
             </ul>
 
             <h4>3. Solutions Tab</h4>
@@ -240,7 +240,7 @@
             <p>The program employs a dedicated search routine for each crystal system. This is an "exhaustive" or "brute-force" trial method that iterates through combinations of low-angle peaks and low-integer Miller indices. The number of peaks required to generate a trial cell depends on the number of unknown lattice parameters.</p>
 
             <h3>System-by-System Search Logic</h3>
-            <p>The search algorithm's goal is to solve a system of linear equations of the form $Q_{obs} = \sum P_i \cdot H_i$, where $Q_{obs}$ are the $1/d^2$ values from the observed peaks, $H_i$ are terms derived from the trial Miller indices (e.g., $h^2, k^2, l^2$), and $P_i$ are the reciprocal lattice parameters (e.g., $1/a^2, 1/b^2, 1/c^2$) we want to find.</p>
+            <p>The search algorithm's goal is to solve a system of linear equations of the form $Q_{obs} = \sum P_i \cdot H_i$, where $Q_{obs}$ are the $1/d^2$ values from the observed peaks, $H_i$ are terms derived from the trial Miller indices (e.g., $h^2, k^2, l^2$), and $P_i$ are the reciprocal lattice parameters (e.g., $A=1/a^{*2}, B=1/b^{*2}, ...$) we want to find.</p>
             <ul>
                 <li>
                     <strong>Cubic (1 parameter, $A=1/a^2$):</strong>
@@ -266,13 +266,32 @@
                 <li>
                     <strong>Monoclinic (4 parameters, $A, B, C, D$):</strong>
                     Solves a 4x4 system for the four reciprocal parameters ($A, B, C, D$) in the equation $Q_{hkl} = A h^2 + B k^2 + C l^2 + D hl$.
-                    A full exhaustive search is computationally infeasible (over 1.1 trillion combinations). Instead, the program uses a deep <strong>random sampling strategy</strong>.
+                    A full exhaustive search is computationally infeasible. Instead, the program uses a deep <strong>random sampling strategy</strong>.
                     <br><br>
-                    It iterates through all combinations of 4 peaks from the first 20 (approx. 4,845 combos). For <em>each</em> peak quadruplet, it tests <strong>10000</strong> randomly sampled HKL-quadruplets. These HKLs are drawn from a curated basis set of 50 common, low-index reflections. Finally, it tests all 24 permutations of assigning the peaks to the HKLs.
+                    It iterates through all combinations of 4 peaks from the first 20 (approx. 4,845 combos). For <em>each</em> peak quadruplet, it tests <strong>10,000</strong> randomly sampled HKL-quadruplets. These HKLs are drawn from a curated basis set of 50 common, low-index reflections. Finally, it tests all 24 permutations of assigning the peaks to the HKLs.
                     <br><br>
-                    This results in a total search space of approximately $\binom{20}{4} \times 10,000 \times 24 \approx \textbf{1.16 billion trials}$, providing a deep and thorough search in a manageable time.
+                    This defines a total search space of $\binom{20}{4} \times 10,000 \times 24 \approx \textbf{1.16 billion combinations}$. The program intelligently skips redundant calculations (e.g., for singular matrices), but this number represents the scale of the search.
+                </li>
+                <li>
+                    <strong>Triclinic (6 parameters, $A, B, C, D, E, F$):</strong>
+                    Solves the full 6x6 system for all reciprocal parameters: $Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk$.
+                    This is the most computationally demanding search.
+                    <br><br>
+                    It iterates through all combinations of 6 peaks from the first 20 (approx. 38,760 combos). For <em>each</em> peak sextuplet, it tests <strong>50,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of 30 low-index reflections. Finally, it tests all 720 (6!) permutations of assigning the peaks to the HKLs.
+                    <br><br>
+                    This defines a total search space of $\binom{20}{6} \times 50,000 \times 720 \approx \textbf{1.4 trillion combinations}$. The program uses optimizations to skip singular (linearly dependent) HKL sets, but this number represents the massive scale of the semi-exhaustive search.
                 </li>
             </ul>
+            
+           
+            <blockquote>
+                <strong>A Note on Performance:</strong>
+                <p>
+                    These search spaces are vast, but the program is highly optimized. At the time of this writing (November 2025), the testing speed on a typical desktop machine, e.g. an Intel I7-12700, is about $10^6$ trials per second for low symmetry systems.
+                </p>
+            </blockquote>
+           
+
         </section>
 
         <section id="evaluating-solutions">
@@ -464,7 +483,7 @@
 
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 25 Oct 2025 by an AI assistant.</p>
+                <p>Help Guide created by an AI Assistant and updated on 05 Nov 2025.</p>
             </div>
         </section>
 
@@ -538,3 +557,4 @@
 
 </body>
 </html>
+

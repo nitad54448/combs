@@ -336,6 +336,9 @@
                     </label>
                      <div class="help-tooltip-container">
                         <span class="help-icon" aria-label="Help and usage information">?</span>
+
+                        
+
                         <div class="tooltip-content">
     <h4>Combs - Powder XRD Indexing</h4>
     <p>This program uses a system-specific, exhaustive search to find potential unit cells based on the first 20 peaks.</p>
@@ -344,6 +347,7 @@
         <li style="margin-bottom: 5px;"><b>Tetra/Hexa:</b> Solves using peak pairs.</li>
         <li style="margin-bottom: 5px;"><b>Ortho:</b> Solves using peak triplets.</li>
         <li style="margin-bottom: 5px;"><b>Monoclinic:</b> Solves using peak quadruplets.</li>
+        <li style="margin-bottom: 5px;"><b>Triclinic:</b> Solves using peak sextuplets.</li>
     </ul>
     <p>All trial cells are refined, scored (M(20)), and analyzed for space groups. For a full breakdown, <a href="combs_help.html" target="_blank" style="color: #6495ED;">read the technical guide.</a></p>
     <hr>
@@ -355,6 +359,8 @@
     <p><b>Pan:</b> Click and drag the chart to pan.</p>
     <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
 </div>
+
+
 
                     </div>
                 </div>
@@ -477,14 +483,18 @@
                                 </label>
                             </div>
                             
-                            <label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
-                            <div class="parameter-grid">
-                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic" checked> <span>Cubic</span></label>
-                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> <span>Tetragonal</span></label>
-                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> <span>Hexagonal</span></label>
-                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic" > <span>Orthorhombic</span></label>
-                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic" > <span>Monoclinic</span></label>
-                            </div>
+<label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
+<div class="parameter-grid">
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic" checked> <span>Cubic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> <span>Tetragonal</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> <span>Hexagonal</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic"> <span>Orthorhombic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic"> <span>Monoclinic</span></label>
+    <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="triclinic"> <span>Triclinic</span></label>
+</div>
+
+
+
                         </div>
                     </div>
                 </div>
@@ -774,11 +784,15 @@ const WAVELENGTH_PRESETS = {
     // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
     const max_hkl_analysis = 10;
 
-    function generateHKL_for_analysis(params, lambda, maxTth) {
-        const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
+
+function generateHKL_for_analysis(params, lambda, maxTth) {
+        const { a, b: b_in, c: c_in, alpha: alpha_in, beta: beta_in, gamma: gamma_in, system } = params;
         const b = b_in ?? a;
         const c = c_in ?? a;
+        const alpha = alpha_in ?? 90;
         const beta = beta_in ?? 90;
+        const gamma = gamma_in ?? 90;
+
         const reflections = [];
 
         const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
@@ -927,6 +941,45 @@ const WAVELENGTH_PRESETS = {
                     }
                 }
                 break;
+            
+           
+                // --- [ADDED] TRICLINIC CASE ---
+            case 'triclinic':
+                const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
+                const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+                if (V_sq < 1e-6) return []; // Invalid cell
+                
+                // Reciprocal parameters (Renamed to avoid conflict with monoclinic case)
+                const Gs_11 = (b*b*c*c * (1 - ca*ca)) / V_sq;
+                const Gs_22 = (a*a*c*c * (1 - cb*cb)) / V_sq;
+                const Gs_33 = (a*a*b*b * (1 - cg*cg)) / V_sq;
+                const Gs_23 = 2 * b*c*a*a * (cb*cg - ca) / V_sq; // 2*k*l * b*c*cos(alpha*)
+                const Gs_13 = 2 * a*c*b*b * (ca*cg - cb) / V_sq; // 2*h*l * a*c*cos(beta*)
+                const Gs_12 = 2 * a*b*c*c * (ca*cb - cg) / V_sq; // 2*h*k * a*b*cos(gamma*)
+
+                for (let h = -h_max; h <= h_max; h++) {
+                    const h_term = h * h * Gs_11;
+                    
+                    for (let k = -k_max; k <= k_max; k++) {
+                        const k_term = k * k * Gs_22;
+                        const hk_term = h_term + k_term + h * k * Gs_12;
+                        
+                        for (let l = -l_max; l <= l_max; l++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
+                            
+                            // Uniqueness: l > 0, or l=0, k > 0, or l=0, k=0, h > 0
+                            if (l < 0) continue;
+                            if (l === 0 && k < 0) continue;
+                            if (l === 0 && k === 0 && h <= 0) continue;
+
+                            const inv_d_sq = hk_term + (l * l * Gs_33) + (k * l * Gs_23) + (h * l * Gs_13);
+                            
+                            processReflection(h, k, l, inv_d_sq);
+                        }
+                    }
+                }
+                break;
+
         }
 
         // De-duplicate reflections with very similar tth values
@@ -1074,6 +1127,7 @@ function determineCentering(indexed_hkls, system) {
         'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'],
         'hexagonal': ['P'], // Rhombohedral R handled separately if needed,... à revoir 
         'monoclinic': ['P', 'C'], // Standard setting
+        'triclinic': ['P'] // --- [ADDED] ---
     };
 
     const violations = {};
@@ -1133,6 +1187,9 @@ function determineCentering(indexed_hkls, system) {
         minViolations: minViolations
     };
 }
+
+
+
 
 /**
  * Detects possible systematic extinctions by checking observed reflections
@@ -1557,14 +1614,14 @@ function getReflectionZone(h, k, l) {
             const preset = WAVELENGTH_PRESETS[ui.wavelengthPreset.value];
             const { tth, intensity } = fullExperimentalData;
             
-            console.log(`Stripping Ka2 for ${ui.wavelengthPreset.value}...`);
+  //          console.log(`Stripping Ka2 for ${ui.wavelengthPreset.value}...`);
             const strippedIntensity = stripRachinger(tth, intensity, preset.ka1, preset.ka2, preset.ratio);
             workingExperimentalData = { tth: [...tth], intensity: strippedIntensity };
-            console.log("Stripping complete.");
+  //          console.log("Stripping complete.");
 
         } else {
             // No stripping, just copy
-            console.log("Using raw data (no stripping).");
+  //          console.log("Using raw data (no stripping).");
             workingExperimentalData = { 
                 tth: [...fullExperimentalData.tth], 
                 intensity: [...fullExperimentalData.intensity] 
@@ -2321,115 +2378,135 @@ ui.tthMinSlider.addEventListener('input', () => {
     const startIndexing = () => {
 
         const tthMinVal = parseFloat(ui.tthMinSlider.value);
-    const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
-    const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
+        const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
+        const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
-    if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
-    const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
-    if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", "error"); return; }
-    if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
-    
-    const statusTextElement = document.getElementById('status-text');
-    if (statusTextElement) statusTextElement.textContent = 'Initializing...';
+        if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
+        const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+        if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", "error"); return; }
+        if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
+        
+        const statusTextElement = document.getElementById('status-text');
+        if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)'; // <-- Set to "Trials: 0" with rate
 
-    setUIState(true); 
+        setUIState(true); 
 
-    // --- Switch to Solutions Tab when start indexing, the user can see solutions and stop... Add the filtering at the end if the stop is manual
-    ui.tabButtons.forEach(btn => btn.classList.remove('active'));
-    ui.tabPanels.forEach(panel => panel.classList.remove('active'));
-    document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
-    document.getElementById('solutions-tab-content').classList.add('active');
-    // --- END ---
-    
-    solutions = []; 
-    displayedSolutions = [];
-    selectedSolution = null; 
-    currentHklList = []; 
-    activeWorkers = [];
-    updateSolutionsTable(); 
-    updateAllMarkers();
-    showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
+        // --- Switch to Solutions Tab
+        ui.tabButtons.forEach(btn => btn.classList.remove('active'));
+        ui.tabPanels.forEach(panel => panel.classList.remove('active'));
+        document.querySelector('.tab-btn[data-tab="solutions"]').classList.add('active');
+        document.getElementById('solutions-tab-content').classList.add('active');
+        
+        solutions = []; 
+        displayedSolutions = [];
+        selectedSolution = null; 
+        currentHklList = []; 
+        activeWorkers = [];
+        updateSolutionsTable(); 
+        updateAllMarkers();
+        showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
 
-    const baseParams = {
-        peaks: filteredPeaks,
-        wavelength: parseFloat(ui.wavelength.value), // This is Ka1
-        tth_error: parseFloat(ui.tthError.value),
-        max_volume: parseFloat(ui.maxVolume.value),
-        impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
-        refineZero: ui.refineZeroCheckbox.checked,
-        allowedSystems: systemsToSearch
-    };
+        // --- [MODIFIED] Cumulative trial counter & timer ---
+        let cumulativeTrials = 0;
+        const startTime = performance.now(); // <-- Record start time
+        // --- [END MODIFIED] ---
 
-    const totalWorkers = systemsToSearch.length;
-    const workerProgress = new Array(totalWorkers).fill(0);
+        const baseParams = {
+            peaks: filteredPeaks,
+            wavelength: parseFloat(ui.wavelength.value),
+            tth_error: parseFloat(ui.tthError.value),
+            max_volume: parseFloat(ui.maxVolume.value),
+            impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
+            refineZero: ui.refineZeroCheckbox.checked,
+            allowedSystems: systemsToSearch
+        };
 
-    systemsToSearch.forEach((system, workerIndex) => { 
-        const worker = new Worker(workerURL);
-        activeWorkers.push(worker);
-        worker.onmessage = (e) => {
-            const { type, payload } = e.data;
+        const totalWorkers = systemsToSearch.length;
+        const workerProgress = new Array(totalWorkers).fill(0); // This is for the progress bar
 
-            if (type === 'status') {
-                if (statusTextElement) statusTextElement.textContent = payload;
-            
-            } else if (type === 'progress') {
-                workerProgress[workerIndex] = payload; 
-                const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
-                ui.progressBar.style.width = `${Math.min(100, totalProgress)}%`;
+        systemsToSearch.forEach((system, workerIndex) => { 
+            const worker = new Worker(workerURL);
+            activeWorkers.push(worker);
 
-            } else if (type === 'solution') {
-                solutions.push(payload);
+            // --- [MODIFIED `onmessage` HANDLER] ---
+            worker.onmessage = (e) => {
+                const { type, payload } = e.data;
 
-                // depuis 25 oct: Call the dynamic pruning function ---
-                pruneSolutions(); 
-               
+                // --- Simplified message handling ---
+                if (type === 'trials_completed_batch') {
+                    cumulativeTrials += payload; // Add the batch from the worker
+                    
+                    // --- [NEW] Calculate rate ---
+                    const elapsedTimeSeconds = (performance.now() - startTime) / 1000;
+                    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0; // Avoid division by zero
+                    // --- [END NEW] ---
 
-                if (solutions.length === 1) {
-                    ui.solutionsLed.className = 'led-indicator green';
-                }
+                    if (statusTextElement) {
+                         // Update text with cumulative trials and rate
+                        statusTextElement.textContent = `Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                    }
                 
-                // These functions will now run on the potentially pruned list
-                sortSolutions(); 
-                const selectedSystems = Array.from(ui.systemCheckboxes)
-                                             .filter(cb => cb.checked)
-                                             .map(cb => cb.value);
-                displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
-                updateSolutionsTable();
-            
-            } else if (type === 'done') {
-                workerProgress[workerIndex] = 100;
-                const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
-                ui.progressBar.style.width = `${totalProgress}%`;
+                } else if (type === 'status') {
+                    // Fallback, for any other messages
+                    if (statusTextElement && cumulativeTrials === 0) statusTextElement.textContent = payload;
+                
+                } else if (type === 'progress') {
+                    // This updates the progress bar
+                    workerProgress[workerIndex] = payload; 
+                    const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
+                    ui.progressBar.style.width = `${Math.min(100, totalProgress)}%`;
 
+                } else if (type === 'solution') {
+                    solutions.push(payload);
+                    pruneSolutions(); 
+                    if (solutions.length === 1) {
+                        ui.solutionsLed.className = 'led-indicator green';
+                    }
+                    sortSolutions(); 
+                    const selectedSystems = Array.from(ui.systemCheckboxes)
+                                                 .filter(cb => cb.checked)
+                                                 .map(cb => cb.value);
+                    displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+                    updateSolutionsTable();
+                
+                } else if (type === 'done') {
+                    workerProgress[workerIndex] = 100;
+                    const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
+                    ui.progressBar.style.width = `${totalProgress}%`;
+
+                    worker.terminate();
+                    activeWorkers = activeWorkers.filter(w => w !== worker);
+                    
+                    if (activeWorkers.length === 0) {
+                        finalizeIndexing(false);
+                        // --- [NEW] Final status update ---
+                        // Show final total and average rate
+                        const elapsedTimeSeconds = (performance.now() - startTime) / 1000;
+                        const trialsPerSecond = (elapsedTimeSeconds > 0) ? cumulativeTrials / elapsedTimeSeconds : 0;
+                        if (statusTextElement) {
+                             statusTextElement.textContent = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                        }
+                        // --- [END NEW] ---
+                    }
+                }
+            }; 
+
+            worker.onerror = (err) => {
+                console.error(`Worker for ${system} crashed:`, err.message, err);
+                showStatus(`Error in ${system} worker. See console.`, "error", 8000);
+                
                 worker.terminate();
                 activeWorkers = activeWorkers.filter(w => w !== worker);
+                workerProgress[workerIndex] = 100; // Mark as "done"
                 
-                    // Check if all workers are gone
                 if (activeWorkers.length === 0) {
-                    // Call the new finalize function for a normal finish
                     finalizeIndexing(false);
                 }
-            }
-        };
+            };
 
-worker.onerror = (err) => {
-            console.error(`Worker for ${system} crashed:`, err.message, err);
-            showStatus(`Error in ${system} worker. See console.`, "error", 8000);
-            
-            // Clean up the failed worker
-            worker.terminate();
-            activeWorkers = activeWorkers.filter(w => w !== worker);
-            workerProgress[workerIndex] = 100; // Mark as "done" to not block completion
-            
-            // Check if all other workers are finished
-            if (activeWorkers.length === 0) {
-                finalizeIndexing(false); // Finalize with whatever solutions we have
-            }
-        };
-
-        worker.postMessage({ ...baseParams, systemToSearch: system });
-    });
-};
+            worker.postMessage({ ...baseParams, systemToSearch: system });
+        });
+    };
 
 
     const finalizeIndexing = (stoppedByUser = false) => {
@@ -2541,6 +2618,12 @@ worker.onerror = (err) => {
                 case 'hexagonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 120`; break;
                 case 'orthorhombic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
                 case 'monoclinic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, ${sol.beta.toFixed(3)}, 90`; break;
+                // --- [ADDED] ---
+                case 'triclinic': 
+                    paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; 
+                    anglesCell = `&alpha; = ${sol.alpha.toFixed(3)}<br>&beta; = ${sol.beta.toFixed(3)}<br>&gamma; = ${sol.gamma.toFixed(3)}`; 
+                    break;
+                // --- [END ADD] ---
                 default: paramsCell = `${sol.a.toFixed(4)}`; anglesCell = `-`;
             }
             if (sol.zero_correction) {
@@ -2557,6 +2640,8 @@ worker.onerror = (err) => {
             }
         });
     };
+
+
 
     ui.solutionsTableBody.addEventListener('click', (e) => {
         const row = e.target.closest('tr'); if (!row) return;
@@ -2673,9 +2758,17 @@ worker.onerror = (err) => {
         xrdChart.update('none');
     };
     
-    // generateHKL... il y a peut être un problème ici, je vais regenerer les HKL pour l'analyse, à voir
+    //  generateHKL... il y a peut être un problème ici, je vais regenerer les HKL pour l'analyse, à voir
     const generateHKL = (maxTth, params, system) => {
-        const { a, b, c, beta, lambda } = params; if (!a || !lambda) return [];
+        const { a, b: b_in, c: c_in, alpha: alpha_in, beta: beta_in, gamma: gamma_in, lambda } = params; 
+        if (!a || !lambda) return [];
+        
+        const b = b_in ?? a;
+        const c = c_in ?? a;
+        const alpha = alpha_in ?? 90;
+        const beta = beta_in ?? 90;
+        const gamma = gamma_in ?? (system === 'hexagonal' ? 120 : 90);
+
         const reflections = [];
         const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
         const q_max_limit = (1 / (d_min * d_min)) * 1.05;
@@ -2694,6 +2787,21 @@ worker.onerror = (err) => {
                 case 'monoclinic':
                     const sinBeta = Math.sin(beta*Math.PI/180); const cosBeta = Math.cos(beta*Math.PI/180);
                     inv_d_sq = (1/(sinBeta*sinBeta))*(h*h/(a*a)+l*l/(c*c)-2*h*l*cosBeta/(a*c))+k*k/(b*b);
+                    break;
+                // --- [ADDED] ---
+                case 'triclinic':
+                    const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
+                    const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+                    if (V_sq < 1e-6) return;
+                    
+                    const G_star_11 = (b*b*c*c * (1 - ca*ca)) / V_sq;
+                    const G_star_22 = (a*a*c*c * (1 - cb*cb)) / V_sq;
+                    const G_star_33 = (a*a*b*b * (1 - cg*cg)) / V_sq;
+                    const G_star_23 = 2 * b*c*a*a * (cb*cg - ca) / V_sq; // 2*k*l * b*c*cos(alpha*)
+                    const G_star_13 = 2 * a*c*b*b * (ca*cg - cb) / V_sq; // 2*h*l * a*c*cos(beta*)
+                    const G_star_12 = 2 * a*b*c*c * (ca*cb - cg) / V_sq; // 2*h*k * a*b*cos(gamma*)
+
+                    inv_d_sq = h*h*G_star_11 + k*k*G_star_22 + l*l*G_star_33 + k*l*G_star_23 + h*l*G_star_13 + h*k*G_star_12;
                     break;
             }
             if (inv_d_sq > 0 && inv_d_sq <= q_max_limit) {
@@ -2714,16 +2822,29 @@ worker.onerror = (err) => {
             }
         } else if (system === 'orthorhombic') {
             for (let h = 0; h <= h_max; h++) for (let k = 0; k <= k_max; k++) for (let l = 0; l <= l_max; l++) processHKL(h,k,l);
-        } else { // Monoclinic & Triclinic (fallback)
+        } else if (system === 'monoclinic') { // Monoclinic
              for (let h = -h_max; h <= h_max; h++) {
                 for (let k = 0; k <= k_max; k++) { // k >= 0 is sufficient
                     for (let l = -l_max; l <= l_max; l++) {
                         
                         // Add uniqueness filter for monoclinic (k=0, h>0 or h=0,l>0)
-                        if (system === 'monoclinic' && k === 0) {
+                        if (k === 0) {
                            if (h < 0) continue;
                            if (h === 0 && l <= 0) continue;
                         }
+                        
+                        processHKL(h,k,l);
+                    }
+                }
+             }
+        } else { // --- [MODIFIED] --- Triclinic
+             for (let h = -h_max; h <= h_max; h++) {
+                for (let k = -k_max; k <= k_max; k++) { 
+                    for (let l = -l_max; l <= l_max; l++) {
+                        // Uniqueness: l > 0, or l=0, k > 0, or l=0, k=0, h > 0
+                        if (l < 0) continue;
+                        if (l === 0 && k < 0) continue;
+                        if (l === 0 && k === 0 && h <= 0) continue;
                         
                         processHKL(h,k,l);
                     }
@@ -2744,6 +2865,8 @@ worker.onerror = (err) => {
         }
         return uniqueReflections;
     };
+
+
 
     const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel');
     resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
@@ -3361,6 +3484,8 @@ const generatePDFReport = async () => {
                      case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
                      case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
                      case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
+                     // --- [ADDED] ---
+                     case 'triclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break; // Angles won't fit
                 }
                 doc.text(sol.system.substring(0,4), margin, yPos);
                 doc.text(sol.m20.toFixed(2), margin + 15, yPos);
@@ -3394,6 +3519,13 @@ const generatePDFReport = async () => {
                      case 'hexagonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
                      case 'orthorhombic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
                      case 'monoclinic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`); break;
+                     // --- [ADDED] ---
+                     case 'triclinic':
+                        paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`);
+                        paramLines.push(`alpha = ${formatWithError(sol.alpha, p.s_alpha)} deg`);
+                        paramLines.push(`beta  = ${formatWithError(sol.beta, p.s_beta)} deg`);
+                        paramLines.push(`gamma = ${formatWithError(sol.gamma, p.s_gamma)} deg`);
+                        break;
                 }
                 paramLines.forEach(line => { doc.text(line, margin, yPos); yPos += 4; });
                 doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); 
@@ -3710,7 +3842,8 @@ const generatePDFReport = async () => {
             ui.reportButton.disabled = (solutions.length === 0);
             document.body.style.cursor = 'default';
         }
-    };  
+    };
+
 
 
 
@@ -3843,7 +3976,89 @@ const N_FOR_M20 = Math.min(20, peaks.length);
             return high;
         }
     };
-    
+
+
+
+
+
+
+
+const determinant3x3 = (M) => {
+    return M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) -
+           M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) +
+           M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+};
+
+const invert3x3 = (M) => {
+    const det = determinant3x3(M);
+    if (Math.abs(det) < 1e-14) return null; // Singular
+
+    const invDet = 1.0 / det;
+    const inv = [
+        [
+            (M[1][1] * M[2][2] - M[1][2] * M[2][1]) * invDet,
+            (M[0][2] * M[2][1] - M[0][1] * M[2][2]) * invDet,
+            (M[0][1] * M[1][2] - M[0][2] * M[1][1]) * invDet
+        ],
+        [
+            (M[1][2] * M[2][0] - M[1][0] * M[2][2]) * invDet,
+            (M[0][0] * M[2][2] - M[0][2] * M[2][0]) * invDet,
+            (M[0][2] * M[1][0] - M[0][0] * M[1][2]) * invDet
+        ],
+        [
+            (M[1][0] * M[2][1] - M[1][1] * M[2][0]) * invDet,
+            (M[0][1] * M[2][0] - M[0][0] * M[2][1]) * invDet,
+            (M[0][0] * M[1][1] - M[0][1] * M[1][0]) * invDet
+        ]
+    ];
+    return inv;
+};
+
+const metricFromReciprocalMetric = (G_star) => {
+    // G = (G*)^-1
+    return invert3x3(G_star);
+};
+
+const cellFromMetric_worker = (G) => {
+    if (!G) return null;
+    try {
+        const a = Math.sqrt(G[0][0]);
+        const b = Math.sqrt(G[1][1]);
+        const c = Math.sqrt(G[2][2]);
+        if (a < 1e-6 || b < 1e-6 || c < 1e-6) return null;
+        const clamp = v => Math.max(-1, Math.min(1, v));
+        const alpha = Math.acos(clamp(G[1][2] / (b * c))) * 180 / Math.PI;
+        const beta = Math.acos(clamp(G[0][2] / (a * c))) * 180 / Math.PI;
+        const gamma = Math.acos(clamp(G[0][1] / (a * b))) * 180 / Math.PI;
+        if (isNaN(a) || isNaN(b) || isNaN(c) || isNaN(alpha) || isNaN(beta) || isNaN(gamma)) return null;
+        return { a, b, c, alpha, beta, gamma };
+    } catch {
+        return null;
+    }
+};
+
+const getVolumeTriclinic = (cell) => {
+    const { a, b, c, alpha, beta, gamma } = cell;
+    const ca = Math.cos(alpha * Math.PI / 180);
+    const cb = Math.cos(beta * Math.PI / 180);
+    const cg = Math.cos(gamma * Math.PI / 180);
+    const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+    return (V_sq > 0) ? Math.sqrt(V_sq) : 0;
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // Enforces crystallographic conventions to avoid listing
@@ -4029,7 +4244,59 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     }
                 }
             }
-        
+        // --- [ADDED] TRICLINIC PATH ---
+        } else if (system === 'triclinic') {
+            const { a, b, c, alpha, beta, gamma } = cell;
+            if (!a || !b || !c || !alpha || !beta || !gamma) return [];
+
+            const h_max = Math.ceil(a / d_min) + 1;
+            const k_max = Math.ceil(b / d_min) + 1;
+            const l_max = Math.ceil(c / d_min) + 1;
+
+            const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
+            const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+            if (V_sq < 1e-6) return []; // Invalid cell
+            
+            // Reciprocal parameters (G* tensor components)
+            const Gs_11 = (b*b*c*c * (1 - ca*ca)) / V_sq;
+            const Gs_22 = (a*a*c*c * (1 - cb*cb)) / V_sq;
+            const Gs_33 = (a*a*b*b * (1 - cg*cg)) / V_sq;
+            const Gs_23 = 2 * b*c*a*a * (cb*cg - ca) / V_sq; // 2 * G*_23
+            const Gs_13 = 2 * a*c*b*b * (ca*cg - cb) / V_sq; // 2 * G*_13
+            const Gs_12 = 2 * a*b*c*c * (ca*cb - cg) / V_sq; // 2 * G*_12
+
+            for (let h = -h_max; h <= h_max; h++) {
+                const h_term = h * h * Gs_11;
+                const h_l_term_coeff = h * Gs_13;
+                const h_k_term_coeff = h * Gs_12;
+
+                for (let k = -k_max; k <= k_max; k++) {
+                     if (reflections.length > MAX_REFLECTIONS_LIMIT) {
+                         console.warn(`[Worker] HKL generation limit (${MAX_REFLECTIONS_LIMIT}) reached for cell. Results may be incomplete.`);
+                         h = h_max + 1; k = k_max + 1; // Break outer loops
+                         continue;
+                    }
+                    const k_term = k * k * Gs_22;
+                    const hk_term = h_term + k_term + h_k_term_coeff; // q for l=0
+                    const k_l_term_coeff = k * Gs_23;
+
+                    for (let l = -l_max; l <= l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        
+                        // Uniqueness: l > 0, or l=0, k > 0, or l=0, k=0, h > 0
+                        if (l < 0) continue;
+                        if (l === 0 && k < 0) continue;
+                        if (l === 0 && k === 0 && h <= 0) continue;
+
+                        const q_calc = hk_term + (l * l * Gs_33) + (k * l * k_l_term_coeff) + (h * l * h_l_term_coeff);
+                        
+                        if (q_calc > 0 && q_calc <= q_max_limit) {
+                            reflections.push({ q: q_calc, h, k, l });
+                        }
+                    }
+                }
+            }
+        // --- [END ADD] ---
         } else {
             // --- ORIGINAL PATH FOR OTHER SYSTEMS ---
             const { a } = cell;
@@ -4101,6 +4368,8 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return reflections.sort((a, b) => a.q - b.q);
     };
 
+
+
     const getQcalc = (hkl, cell) => {
         const [h, k, l] = hkl;
         const { a, b, c, beta, system } = cell;
@@ -4127,11 +4396,13 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             case 'hexagonal': return [(4/3)*(h*h + h*k + k*k), l*l];
             case 'orthorhombic': return [h*h, k*k, l*l];
             case 'monoclinic': return [h*h, k*k, l*l, h*l];
+            case 'triclinic': return [h*h, k*k, l*l, k*l, h*l, h*k];
         }
     };
     
-    const extractCellFromFit = (params, system) => {
-        let cell = { system, alpha: 90, gamma: 90 };
+
+const extractCellFromFit = (params, system) => {
+        let cell = { system };
         try {
             if (params.some(p => isNaN(p))) return null;
 
@@ -4141,7 +4412,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         cell.a = 1/Math.sqrt(params[0]);
         cell.b = cell.a;
         cell.c = cell.a;
-        cell.beta = 90;
+        cell.alpha = 90; cell.beta = 90; cell.gamma = 90;
         break;
 
     case 'tetragonal':
@@ -4149,7 +4420,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         cell.a = 1/Math.sqrt(params[0]);
         cell.b = cell.a;
         cell.c = 1/Math.sqrt(params[1]);
-        cell.beta = 90;
+        cell.alpha = 90; cell.beta = 90; cell.gamma = 90;
         break;
 
     case 'hexagonal':
@@ -4157,8 +4428,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         cell.a = 1/Math.sqrt(params[0]);
         cell.b = cell.a;
         cell.c = 1/Math.sqrt(params[1]);
-        cell.beta = 90;
-        cell.gamma = 120;
+        cell.alpha = 90; cell.beta = 90; cell.gamma = 120;
         break;
 
     case 'orthorhombic':
@@ -4166,7 +4436,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         cell.a = 1/Math.sqrt(params[0]);
         cell.b = 1/Math.sqrt(params[1]);
         cell.c = 1/Math.sqrt(params[2]);
-        cell.beta = 90;
+        cell.alpha = 90; cell.beta = 90; cell.gamma = 90;
         break;
 
     case 'monoclinic':
@@ -4198,15 +4468,37 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         cell.a = 1/Math.sqrt(A * sinBetaSq);
         cell.b = 1/Math.sqrt(B);
         cell.c = 1/Math.sqrt(C * sinBetaSq);
+        cell.alpha = 90; cell.gamma = 90;
+        break;
+    
+    // --- [ADDED] ---
+    case 'triclinic':
+        const [p1, p2, p3, p4, p5, p6] = params; // A, B, C, D, E, F
+        // G* = [ [A, F/2, E/2], [F/2, B, D/2], [E/2, D/2, C] ]
+        const G_star = [
+            [p1, p6/2, p5/2],
+            [p6/2, p2, p4/2],
+            [p5/2, p4/2, p3]
+        ];
+        
+        const G = metricFromReciprocalMetric(G_star);
+        if (!G) return null; // Singular matrix
+        
+        const triclinicCell = cellFromMetric_worker(G);
+        if (!triclinicCell) return null;
+
+        cell = { ...cell, ...triclinicCell };
         break;
 }
 
-        } catch { return null; }
+        } catch (e) { return null; } // <-- THIS IS THE FIX
         
-        if (isNaN(cell.a) || isNaN(cell.b) || isNaN(cell.c) || isNaN(cell.beta)) return null;
+        if (isNaN(cell.a) || isNaN(cell.b) || isNaN(cell.c) || isNaN(cell.alpha) || isNaN(cell.beta) || isNaN(cell.gamma)) return null;
 
         return cell;
     };
+
+
     
     const getVolume = (cell) => {
         const { a, b, c, beta, system } = cell;
@@ -4216,6 +4508,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             case 'hexagonal': return a**2 * c * Math.sqrt(3)/2;
             case 'orthorhombic': return a * b * c;
             case 'monoclinic': return a * b * c * Math.sin(beta * Math.PI / 180);
+            case 'triclinic': return getVolumeTriclinic(cell);
         }
     };
     
@@ -4227,6 +4520,10 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             case 'tetragonal': case 'hexagonal': return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
             case 'orthorhombic': return `${std.system}_${[std.a,std.b,std.c].sort().map(p => p.toFixed(P)).join('_')}`;
             case 'monoclinic': return `${std.system}_${std.volume.toFixed(2)}_${std.beta.toFixed(2)}`;
+                        case 'triclinic':
+                const vol = getVolumeTriclinic(std).toFixed(2);
+                const angles = [std.alpha, std.beta, std.gamma].sort().map(a => a.toFixed(1)).join('_');
+                return `${std.system}_${vol}_${angles}`;
         }
     };
         
@@ -4261,6 +4558,27 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         }
         return { lu, P };
     };
+
+
+
+    const generatePermutations = (n) => {
+    if (n <= 0) return [[]];
+    if (n === 1) return [[0]];
+    const perms = [];
+    const subPerms = generatePermutations(n - 1);
+    const item = n - 1;
+    for (const p of subPerms) {
+        for (let i = 0; i < n; i++) {
+            const newPerm = p.slice(0, i).concat(item).concat(p.slice(i));
+            perms.push(newPerm);
+        }
+    }
+    return perms;
+};
+
+
+
+
 
     // Helper: Solves Ax = b given LU decomposition
     const luSolve = (luDecomp, b) => {
@@ -4446,6 +4764,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     // --- END REPLACE ---
 
 
+
     const propagateErrors = (system, fitResult, cell) => {
         if (!fitResult || !fitResult.covarianceMatrix) return {};
         const V = fitResult.covarianceMatrix, errors = {}, num_params = V.length;
@@ -4470,8 +4789,14 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     errors.s_a = (cell.a / (2*A)) * Math.sqrt(Math.abs(V[0][0]));
                     errors.s_c = (cell.c / (2*C)) * Math.sqrt(Math.abs(V[2][2]));
                     break;
+                // --- [ADDED] ---
+                case 'triclinic':
+                    // 6x6 error propagation is complex, return empty for now
+                    errors.s_a = 0; errors.s_b = 0; errors.s_c = 0;
+                    errors.s_alpha = 0; errors.s_beta = 0; errors.s_gamma = 0;
+                    break;
             }
-            const cell_param_count = { cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4 };
+            const cell_param_count = { cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4, triclinic: 6 };
             if (num_params > cell_param_count[system]) {
                 errors.s_zero = Math.sqrt(Math.abs(V[num_params - 1][num_params - 1])) * 180 / Math.PI;
             }
@@ -4479,13 +4804,16 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         return errors;
     };
 
+
     const hkl_search_list_cache = {};
+
     const get_hkl_search_list = (system) => {
         if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
         
         const hkls = [];
         const max_h = 6; // Max index for non-mono systems
         const max_mono = 4; // Max index for mono system
+        const max_tri = 2; // Max index for triclinic (6x6 solver is sensitive)
 
         if (system === 'monoclinic') {
             // --- Monoclinic ---
@@ -4503,6 +4831,23 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     }
                 }
             }
+        // --- [ADDED] ---
+        } else if (system === 'triclinic') {
+            // Uniqueness: l > 0, or l=0, k > 0, or l=0, k=0, h > 0
+            for (let h = -max_tri; h <= max_tri; h++) {
+                for (let k = -max_tri; k <= max_tri; k++) {
+                    for (let l = 0; l <= max_tri; l++) { // l >= 0
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        
+                        // Enforce uniqueness
+                        if (l === 0 && k < 0) continue;
+                        if (l === 0 && k === 0 && h <= 0) continue;
+
+                        hkls.push([h, k, l]);
+                    }
+                }
+            }
+        // --- [END ADD] ---
         } else if (system === 'orthorhombic') {
             // --- Orthorhombic ---
             // All positive octant (h,k,l) are unique
@@ -4579,7 +4924,8 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                 best_match = hkl; 
             }
             
-            if (system !== 'monoclinic' && q_calc > q_o + tolerance * 2) {
+            // --- [MODIFIED] --- Apply break optimization only to non-general systems
+            if (system !== 'monoclinic' && system !== 'triclinic' && q_calc > q_o + tolerance * 2) {
                  break; 
             }
         }
@@ -4590,7 +4936,8 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         }
     }
     
-    const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7 };
+    // --- [MODIFIED] ---
+    const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
     
     if (initial_indexed_pairs.length < min_indexed[system]) {
         return;
@@ -4701,13 +5048,26 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             const tolerance = get_q_tolerance(original_indices[i]);
             let best_match_idx = -1, min_diff = Infinity;
 
-            for (let j = 0; j < all_possible_reflections.length; j++) {
-                const diff = Math.abs(all_possible_reflections[j].q - q_o);
-                if (diff < min_diff) {
-                    min_diff = diff;
-                    best_match_idx = j;
+            // This search is slow. Use binary search.
+            // Find closest index in sorted q_calc array
+            if (all_possible_reflections.length > 0) {
+                let low = 0, high = all_possible_reflections.length - 1;
+                while (low <= high) {
+                    let mid = Math.floor((low + high) / 2);
+                    if (all_possible_reflections[mid].q < q_o) low = mid + 1;
+                    else high = mid - 1;
+                }
+                
+                // Check neighbors
+                for (let j = Math.max(0, high - 1); j <= Math.min(all_possible_reflections.length - 1, low + 1); j++) {
+                    const diff = Math.abs(all_possible_reflections[j].q - q_o);
+                    if (diff < min_diff) {
+                        min_diff = diff;
+                        best_match_idx = j;
+                    }
                 }
             }
+            // --- End binary search adaptation ---
 
             if (best_match_idx !== -1 && min_diff < tolerance && !used_reflections.has(best_match_idx)) {
                 const {h, k, l} = all_possible_reflections[best_match_idx];
@@ -4801,26 +5161,41 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
     }
 };
 
-    //  SEARCH ALGORITHMS 
-    const indexCubic = () => {
+
+const indexCubic = () => {
         const h_max = 8;
         const totalIterations = Math.min(peaks.length, 10);
         if (totalIterations === 0) return;
-        // ---
+
+        // --- [MODIFIED] Trial counting ---
+        const hkls = [];
+        for (let h = 1; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) {
+            if (!h && !k && !l) continue;
+            hkls.push([h,k,l]);
+        }
+        
+        let trialsBatch = 0;
+        const batchSize = 100; // Post message every 100 trials
+        // --- [END MODIFIED] ---
 
         for (let i = 0; i < totalIterations; i++) { 
-            for (let h = 1; h <= h_max; h++) {
-                for (let k = 0; k <= h; k++) {
-                    for (let l = 0; l <= k; l++) {
-                        if (!h && !k && !l) continue;
-                        refineAndTestSolution({ a: Math.sqrt((h * h + k * k + l * l) / q_obs[i]), system: 'cubic' });
-                    }
+            for (const hkl of hkls) {
+                refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
+                
+                // --- [MODIFIED] ---
+                trialsBatch++;
+                if (trialsBatch >= batchSize) {
+                    self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+                    trialsBatch = 0;
                 }
+                // --- [END MODIFIED] ---
             }
-            // Report progress based on the outer loop
-            const progress = ((i + 1) / totalIterations) * 80; // Scale to 80% (20% for transforms)
+            const progress = ((i + 1) / totalIterations) * 80;
             self.postMessage({ type: 'progress', payload: progress });
-            // ---
+        }
+        // Send any remaining trials
+        if (trialsBatch > 0) {
+            self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
         }
     };
 
@@ -4828,16 +5203,35 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         const max_hkl = 5, i_depth = Math.min(10, peaks.length), j_depth = Math.min(10, peaks.length);
         const totalIterations = i_depth;
         if (totalIterations === 0) return;
-        // ---
+
+        // --- [MODIFIED] Trial counting ---
+        const hkls = [];
+        for (let h = 0; h <= max_hkl; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_hkl; l++) {
+            if (!h && !k && !l) continue;
+            hkls.push([h,k,l]);
+        }
+        
+        let trialsBatch = 0;
+        const batchSize = 5000; // Post message every 5000 trials
+        // --- [END MODIFIED] ---
 
         for (let i = 0; i < totalIterations; i++) {
             for (let j = i + 1; j < j_depth; j++) {
-                for (let h1 = 0; h1 <= max_hkl; h1++) for (let k1 = 0; k1 <= h1; k1++) for (let l1 = 0; l1 <= max_hkl; l1++) {
-                    if (!h1 && !k1 && !l1) continue;
-                    const S1 = system === 'tetragonal' ? h1 * h1 + k1 * k1 : h1 * h1 + h1 * k1 + k1 * k1;
-                    for (let h2 = 0; h2 <= max_hkl; h2++) for (let k2 = 0; k2 <= h2; k2++) for (let l2 = 0; l2 <= max_hkl; l2++) {
-                        if (!h2 && !k2 && !l2) continue;
-                        const S2 = system === 'tetragonal' ? h2 * h2 + k2 * k2 : h2 * h2 + h2 * k2 + k2 * k2;
+                for (const hkl1 of hkls) {
+                    const l1 = hkl1[2];
+                    const S1 = system === 'tetragonal' ? hkl1[0] * hkl1[0] + hkl1[1] * hkl1[1] : hkl1[0] * hkl1[0] + hkl1[0] * hkl1[1] + hkl1[1] * hkl1[1];
+                    for (const hkl2 of hkls) {
+                        const l2 = hkl2[2];
+                        const S2 = system === 'tetragonal' ? hkl2[0] * hkl2[0] + hkl2[1] * hkl2[1] : hkl2[0] * hkl2[0] + hkl2[0] * hkl2[1] + hkl2[1] * hkl2[1];
+                        
+                        // --- [MODIFIED] ---
+                        trialsBatch++;
+                        if (trialsBatch >= batchSize) {
+                            self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+                            trialsBatch = 0;
+                        }
+                        // --- [END MODIFIED] ---
+
                         const det = S1 * l2 * l2 - S2 * l1 * l1;
                         if (Math.abs(det) < 1e-6) continue;
                         const a_term_inv = (q_obs[i] * l2 * l2 - q_obs[j] * l1 * l1) / det, c_term_inv = (q_obs[j] * S1 - q_obs[i] * S2) / det;
@@ -4850,7 +5244,10 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             }
             const progress = ((i + 1) / totalIterations) * 80; 
             self.postMessage({ type: 'progress', payload: progress });
-            // ---
+        }
+        // Send any remaining trials
+        if (trialsBatch > 0) {
+            self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
         }
     };
 
@@ -4858,12 +5255,25 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
         const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 30);
         const totalIterations = max_p - 2;
         if (totalIterations <= 0) return;
-        // ---
+        
+        // --- [MODIFIED] Trial counting ---
+        let trialsBatch = 0;
+        const batchSize = 50000; // Post message every 50k trials
+        // --- [END MODIFIED] ---
 
         for (let i = 0; i < totalIterations; i++) { 
             for (let j = i + 1; j < max_p - 1; j++) {
                 for (let k = j + 1; k < max_p; k++) {
                     for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
+                        
+                        // --- [MODIFIED] ---
+                        trialsBatch++;
+                        if (trialsBatch >= batchSize) {
+                            self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+                            trialsBatch = 0;
+                        }
+                        // --- [END MODIFIED] ---
+
                         const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2]);
                         const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
                         const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
@@ -4874,46 +5284,22 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     }
                 }
             }
-            // 
             const progress = ((i + 1) / totalIterations) * 80; // Scale to 80%
             self.postMessage({ type: 'progress', payload: progress });
-            // ---
+        }
+        // Send any remaining trials
+        if (trialsBatch > 0) {
+            self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
         }
     };
 
-
-
-    // Helper function for indexMonoclinic
-const generateBasisHKLs = (max_index = 3) => {
-    const hkls = [];
-    // Generate h,k,l up to max_index
-    for (let h = -max_index; h <= max_index; h++) {
-        for (let k = 0; k <= max_index; k++) { // k >= 0
-            for (let l = -max_index; l <= max_index; l++) {
-                if (h === 0 && k === 0 && l === 0) continue;
-                
-                // Enforce monoclinic uniqueness
-                if (k === 0) {
-                    if (h < 0) continue;
-                    if (h === 0 && l <= 0) continue;
-                }
-                hkls.push([h, k, l]);
-            }
-        }
-    }
-    // Sort by complexity (sum of h^2+k^2+l^2)
-    hkls.sort((a,b) => (a[0]*a[0]+a[1]*a[1]+a[2]*a[2]) - (b[0]*b[0]+b[1]*b[1]+b[2]*b[2]));
-    return hkls;
-};
-
-// indexMonoclinic, quelques soucis avec beta < 90, je vais scanner uniquement >90
+    // --- [START] REPLACEMENT FOR indexMonoclinic ---
 const indexMonoclinic = (opts = {}) => {
     // Options (override if needed)
     const MAX_BASIS = opts.maxBasis || 50;        // max basis size to use
     const MAX_PEAKS = opts.maxPeaks || 20;       // use first N peaks
     const SAMPLE_COMBINATIONS = opts.sampleCombinations || false; 
-    const HKL_SAMPLE_SIZE = opts.hklSampleSize || 10000;  //augmenté de 5 à 10k
-  //  const SAMPLE_TRIES = opts.sampleTries || 20000; 
+    const HKL_SAMPLE_SIZE = opts.hklSampleSize || 10000;
     const MIN_DET = opts.minDeterminant || 1e-8; 
     const CELL_LIMITS = opts.cellLimits || { a: [2, 50], b: [2, 50], c: [2, 50] }; 
 
@@ -4921,14 +5307,16 @@ const indexMonoclinic = (opts = {}) => {
     const max_p = Math.min(MAX_PEAKS, q_obs.length);
     if (max_p < 4) return;
 
-    // 2) Define HKL basis
-    const basis_hkls_full = generateBasisHKLs(3); // Generate hkls up to index 3
+    // 2) Define HKL basis (Uses the GLOBAL get_hkl_search_list)
+    const basis_hkls_full = get_hkl_search_list('monoclinic'); 
     const basis_hkls = basis_hkls_full.slice(0, Math.min(basis_hkls_full.length, MAX_BASIS));
     
     const num_hkls = basis_hkls.length;
     if (num_hkls < 4) return;
 
-    // Helper: check if two HKLs are linearly dependent / duplicates (simple check)
+    // Helper: build M (4x4) from 4 hkls where Q = A*h^2 + B*k^2 + C*l^2 + D*h*l
+    
+    
     const isDuplicateHKL = (hkl1, hkl2) => {
         if (hkl1[0] === hkl2[0] && hkl1[1] === hkl2[1] && hkl1[2] === hkl2[2]) return true;
         const a = hkl1[0], b = hkl1[1], c = hkl1[2];
@@ -4946,11 +5334,12 @@ const indexMonoclinic = (opts = {}) => {
         }
         return true;
     };
-
-    // Helper: build M (4x4) from 4 hkls where Q = A*h^2 + B*k^2 + C*l^2 + D*h*l
+    
+    
     const buildM = (hkls) => hkls.map(hkl => [hkl[0]*hkl[0], hkl[1]*hkl[1], hkl[2]*hkl[2], hkl[0]*hkl[2]]);
 
-    // Robust 4x4 solver
+    // Robust 4x4 solver (Uses the GLOBAL solve4x4)
+    // Note: We need a local 4x4 solver for this specific function
     const solve4x4 = (A, b) => {
         const M = A.map(r => r.slice());
         const v = b.slice();
@@ -4986,18 +5375,18 @@ const indexMonoclinic = (opts = {}) => {
         }
         return { solution: x, det };
     };
-
-    // Simple plausibility test for the extracted cell
+    
+    // Uses the GLOBAL plausibleCellCheck
     const plausibleCellCheck = (cell) => {
-        if (!isFinite(cell.a) || !isFinite(cell.b) || !isFinite(cell.c) || !isFinite(cell.beta)) return false;
+        if (!cell || !isFinite(cell.a) || !isFinite(cell.b) || !isFinite(cell.c) || !isFinite(cell.beta)) return false;
         if (cell.a <= 0 || cell.b <= 0 || cell.c <= 0) return false;
-        //  beta check to conventional range
         if (cell.beta < 90 || cell.beta > 150) return false;
         if (cell.a < CELL_LIMITS.a[0] || cell.a > CELL_LIMITS.a[1]) return false;
         if (cell.b < CELL_LIMITS.b[0] || cell.b > CELL_LIMITS.b[1]) return false;
         if (cell.c < CELL_LIMITS.c[0] || cell.c > CELL_LIMITS.c[1]) return false;
         return true;
     };
+    // --- [END FIX] ---
 
     // Prepare combinations generator (exhaustive or sampling)
     const combos = [];
@@ -5013,6 +5402,7 @@ const indexMonoclinic = (opts = {}) => {
         }
     } else {
         const rng = () => Math.floor(Math.random() * max_p);
+        const SAMPLE_TRIES = HKL_SAMPLE_SIZE; 
         for (let t = 0; t < SAMPLE_TRIES; t++) {
             let s = new Set();
             while (s.size < 4) s.add(rng());
@@ -5021,16 +5411,26 @@ const indexMonoclinic = (opts = {}) => {
         }
     }
 
-    const totalProgressIterations = combos.length || 1;
-    let progressCount = 0;
-
     const hklsCombosLimit = 200000;
     const allHKLCombos = [];
     const estimatedHKLQuads = (num_hkls * (num_hkls-1) * (num_hkls-2) * (num_hkls-3)) / 24;
     const hklsShouldSample = estimatedHKLQuads > hklsCombosLimit;
 
-    if (!hklsShouldSample) {
-        for (let n1 = 0; n1 < num_hkls - 3; n1++) {
+    const hklsIter = hklsShouldSample ? (() => {
+        const tries = HKL_SAMPLE_SIZE;
+        const yielded = [];
+        for (let t = 0; t < tries; t++) {
+            const pick = [];
+            while (pick.length < 4) {
+                const r = Math.floor(Math.random() * num_hkls);
+                if (!pick.includes(r)) pick.push(r);
+            }
+            pick.sort((a,b)=>a-b);
+            yielded.push(pick);
+        }
+        return yielded;
+    })() : (() => {
+         for (let n1 = 0; n1 < num_hkls - 3; n1++) {
             for (let n2 = n1 + 1; n2 < num_hkls - 2; n2++) {
                 for (let n3 = n2 + 1; n3 < num_hkls - 1; n3++) {
                     for (let n4 = n3 + 1; n4 < num_hkls; n4++) {
@@ -5039,7 +5439,8 @@ const indexMonoclinic = (opts = {}) => {
                 }
             }
         }
-    }
+        return allHKLCombos;
+    })();
     
     const all_q_indices_permutations = [
         [0, 1, 2, 3], [0, 1, 3, 2], [0, 2, 1, 3], [0, 2, 3, 1], [0, 3, 1, 2], [0, 3, 2, 1],
@@ -5048,38 +5449,44 @@ const indexMonoclinic = (opts = {}) => {
         [3, 0, 1, 2], [3, 0, 2, 1], [3, 1, 0, 2], [3, 1, 2, 0], [3, 2, 0, 1], [3, 2, 1, 0]
     ];
 
+    // --- [MODIFIED] Trial counting ---
+    let trialsBatch = 0;
+    const batchSize = 10000; // Send update every 10k permutations
+    let progressCount = 0;
+    const totalProgressIterations = combos.length || 1;
+    // --- [END MODIFIED] ---
+
     // Main loops
     for (const peakIndices of combos) {
         
-        const hklsIter = hklsShouldSample ? (() => {
-            const tries = HKL_SAMPLE_SIZE;
-            const yielded = [];
-            for (let t = 0; t < tries; t++) {
-                const pick = [];
-                while (pick.length < 4) {
-                    const r = Math.floor(Math.random() * num_hkls);
-                    if (!pick.includes(r)) pick.push(r);
-                }
-                pick.sort((a,b)=>a-b);
-                yielded.push(pick);
-            }
-            return yielded;
-        })() : allHKLCombos;
+        const q_values = [ 
+            q_obs[peakIndices[0]], q_obs[peakIndices[1]],
+            q_obs[peakIndices[2]], q_obs[peakIndices[3]] 
+        ];
 
         for (const [n1,n2,n3,n4] of hklsIter) {
             const h1 = basis_hkls[n1], h2 = basis_hkls[n2], h3 = basis_hkls[n3], h4 = basis_hkls[n4];
+            
+            // Uses the GLOBAL isDuplicateHKL
             if (isDuplicateHKL(h1,h2) || isDuplicateHKL(h1,h3) || isDuplicateHKL(h1,h4) ||
-                isDuplicateHKL(h2,h3) || isDuplicateHKL(h2,h4) || isDuplicateHKL(h3,h4)) continue;
+                isDuplicateHKL(h2,h3) || isDuplicateHKL(h2,h4) || isDuplicateHKL(h3,h4)) {
+                trialsBatch += 24; // Still count these as "tried"
+                continue;
+            }
 
             const hkls = [h1,h2,h3,h4];
             const M = buildM(hkls);
             
-            const q_values = [ 
-                q_obs[peakIndices[0]], q_obs[peakIndices[1]],
-                q_obs[peakIndices[2]], q_obs[peakIndices[3]] 
-            ];
+            // --- [OPTIMIZATION] ---
+            const test_fit = solve4x4(M, q_values);
+            if (!test_fit) {
+                trialsBatch += 24; // Add all 24 skipped permutations
+                continue; // Matrix M is singular, skip all 24 permutations
+            }
+            // --- [END OPTIMIZATION] ---
 
             for (const p of all_q_indices_permutations) {
+                trialsBatch++; // Increment for each permutation
                 const q_vec_permuted = [ q_values[p[0]], q_values[p[1]], q_values[p[2]], q_values[p[3]] ];
 
                 const fit = solve4x4(M, q_vec_permuted);
@@ -5094,17 +5501,13 @@ const indexMonoclinic = (opts = {}) => {
                 if (!isFinite(denom) || Math.abs(denom) < 1e-14) continue;
                 
                 
-                // The relationship is cos(beta) = D / (2*sqrt(A*C))
-                // NOT -D / (2*sqrt(A*C)).
                 const cosBeta = D / denom;
               
-
                 if (!isFinite(cosBeta) || Math.abs(cosBeta) > 1 - 1e-6) continue;
 
                 const cosB_clamped = Math.max(-1, Math.min(1, cosBeta));
                 let betaRad = Math.acos(cosB_clamped);
                 
-                // Enforce conventional beta >= 90
                 if (betaRad < (Math.PI / 2.0)) {
                     betaRad = Math.PI - betaRad;
                 }
@@ -5121,6 +5524,7 @@ const indexMonoclinic = (opts = {}) => {
 
                 const trialCell = { a, b, c, beta, system: 'monoclinic' };
 
+                // Uses the GLOBAL plausibleCellCheck
                 if (!plausibleCellCheck(trialCell)) continue;
 
                 try {
@@ -5129,6 +5533,14 @@ const indexMonoclinic = (opts = {}) => {
                     console.warn('refineAndTestSolution threw', e);
                 }
             } 
+            
+            // --- [MOVED BATCH LOGIC] ---
+            // Check if batch is full inside the HKL loop
+            if (trialsBatch >= batchSize) {
+                self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+                trialsBatch = 0;
+            }
+            // --- [END MOVED BATCH LOGIC] ---
         } 
 
         progressCount++;
@@ -5136,8 +5548,197 @@ const indexMonoclinic = (opts = {}) => {
         self.postMessage({ type: 'progress', payload: progress });
     } 
 
+    // Send any remaining trials
+    if (trialsBatch > 0) {
+        self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+    }
     self.postMessage({ type: 'progress', payload: 100 });
 };
+// --- [END] REPLACEMENT FOR indexMonoclinic ---
+
+// --- [START] REPLACEMENT FOR indexTriclinic ---
+const indexTriclinic = (opts = {}) => {
+    // 6-parameter search, needs 6 peaks and 6 HKLs
+    const MAX_BASIS = opts.maxBasis || 30;
+    const MAX_PEAKS = opts.maxPeaks || 20;
+    const MIN_DET = opts.minDeterminant || 1e-8; 
+    const CELL_LIMITS = opts.cellLimits || { a: [2, 50], b: [2, 50], c: [2, 50] };
+
+    // 1) Decide peaks to use
+    const max_p = Math.min(MAX_PEAKS, q_obs.length);
+    if (max_p < 6) return;
+
+    // 2) Define HKL basis (Uses the GLOBAL get_hkl_search_list)
+    const basis_hkls_full = get_hkl_search_list('triclinic');
+    const basis_hkls = basis_hkls_full.slice(0, Math.min(basis_hkls_full.length, MAX_BASIS));
+    const num_hkls = basis_hkls.length;
+    if (num_hkls < 6) return;
+    
+    // --- [FIXED] ---
+    // All helper functions are now correctly defined *inside* this function
+    
+    // --- Generate the 6! = 720 permutations ---
+    // (Uses the GLOBAL generatePermutations)
+    const all_q_indices_permutations_6x6 = generatePermutations(6);
+
+    // Helper: build M (6x6) from 6 hkls
+    const buildM_Triclinic = (hkls) => hkls.map(hkl => {
+        const h = hkl[0], k = hkl[1], l = hkl[2];
+        return [h*h, k*k, l*l, k*l, h*l, h*k];
+    });
+
+    // Robust 6x6 solver (Gaussian elimination)
+    const solve6x6 = (A, b) => {
+        const M = A.map(r => r.slice());
+        const v = b.slice();
+        const n = 6;
+        let det = 1;
+        for (let i = 0; i < n; i++) {
+            let maxRow = i;
+            let maxVal = Math.abs(M[i][i]);
+            for (let r = i+1; r < n; r++) {
+                const val = Math.abs(M[r][i]);
+                if (val > maxVal) { maxVal = val; maxRow = r; }
+            }
+            if (maxVal < 1e-14) return null; 
+            if (maxRow !== i) {
+                [M[i], M[maxRow]] = [M[maxRow], M[i]];
+                [v[i], v[maxRow]] = [v[maxRow], v[i]];
+                det = -det;
+            }
+            const pivot = M[i][i];
+            det *= pivot;
+            for (let r = i+1; r < n; r++) {
+                const fac = M[r][i] / pivot;
+                for (let c = i; c < n; c++) M[r][c] -= fac * M[i][c];
+                v[r] -= fac * v[i];
+            }
+        }
+        if (Math.abs(det) < MIN_DET) return null;
+        const x = new Array(n).fill(0);
+        for (let i = n-1; i >= 0; i--) {
+            let s = v[i];
+            for (let j = i+1; j < n; j++) s -= M[i][j] * x[j];
+            x[i] = s / M[i][i];
+        }
+        return { solution: x, det };
+    };
+
+    // Simple plausibility test for the extracted cell
+    const plausibleCellCheck = (cell) => {
+        if (!cell || !isFinite(cell.a) || !isFinite(cell.b) || !isFinite(cell.c) || !isFinite(cell.alpha) || !isFinite(cell.beta) || !isFinite(cell.gamma)) return false;
+        if (cell.a <= 0 || cell.b <= 0 || cell.c <= 0) return false;
+        if (cell.a < CELL_LIMITS.a[0] || cell.a > CELL_LIMITS.a[1]) return false;
+        if (cell.b < CELL_LIMITS.b[0] || cell.b > CELL_LIMITS.b[1]) return false;
+        if (cell.c < CELL_LIMITS.c[0] || cell.c > CELL_LIMITS.c[1]) return false;
+        if (cell.alpha < 45 || cell.alpha > 135) return false;
+        if (cell.beta  < 45 || cell.beta  > 135) return false;
+        if (cell.gamma < 45 || cell.gamma > 135) return false;
+        return true;
+    };
+    // --- [END FIX] ---
+
+    // Prepare peak combinations
+    const combos = [];
+    for (let i = 0; i < max_p - 5; i++) {
+        for (let j = i + 1; j < max_p - 4; j++) {
+            for (let k = j + 1; k < max_p - 3; k++) {
+                for (let l = k + 1; l < max_p - 2; l++) {
+                    for (let m = l + 1; m < max_p - 1; m++) {
+                        for (let n = m + 1; n < max_p; n++) {
+                            combos.push([i,j,k,l,m,n]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Prepare HKL combinations (sample if too many)
+    const hklCombos = [];
+    const HKL_COMBOS_LIMIT = 50000; // Limit for HKL combinations
+    if ((num_hkls**6) / 720 > HKL_COMBOS_LIMIT) {
+        // Sample
+        for (let t = 0; t < HKL_COMBOS_LIMIT; t++) {
+            let s = new Set();
+            while (s.size < 6) s.add(Math.floor(Math.random() * num_hkls));
+            const arr = Array.from(s).sort((a,b)=>a-b);
+            hklCombos.push(arr);
+        }
+    } else {
+        // Exhaustive
+        for (let n1=0; n1<num_hkls-5; n1++) for (let n2=n1+1; n2<num_hkls-4; n2++)
+        for (let n3=n2+1; n3<num_hkls-3; n3++) for (let n4=n3+1; n4<num_hkls-2; n4++)
+        for (let n5=n4+1; n5<num_hkls-1; n5++) for (let n6=n5+1; n6<num_hkls; n6++) {
+            hklCombos.push([n1,n2,n3,n4,n5,n6]);
+        }
+    }
+
+    // --- [MODIFIED] Trial counting ---
+    let trialsBatch = 0;
+    const batchSize = 10000; // Send update every 10k permutations
+    let progressCount = 0;
+    const totalProgressIterations = combos.length || 1;
+    // --- [END MODIFIED] ---
+
+    // --- Main Loop ---
+    for (const peakIndices of combos) {
+        
+        const q_values = peakIndices.map(idx => q_obs[idx]);
+
+        for (const hklIndices of hklCombos) {
+            
+            const hkls = hklIndices.map(idx => basis_hkls[idx]);
+            const M = buildM_Triclinic(hkls);
+
+            // --- [OPTIMIZATION] ---
+            const test_fit = solve6x6(M, q_values);
+            if (!test_fit) {
+                trialsBatch += 720; // Add all 720 skipped permutations
+                continue; 
+            }
+            // --- [END OPTIMIZATION] ---
+
+            // --- Full permutation loop ---
+            for (const p of all_q_indices_permutations_6x6) {
+                trialsBatch++; // Increment for each permutation
+
+                const q_vec_permuted = p.map(idx => q_values[idx]);
+
+                const fit = solve6x6(M, q_vec_permuted);
+                if (!fit) continue; 
+
+                const trialCell = extractCellFromFit(fit.solution, 'triclinic');
+                if (!plausibleCellCheck(trialCell)) continue;
+
+                try {
+                    refineAndTestSolution(trialCell);
+                } catch (e) {
+                    console.warn('refineAndTestSolution (triclinic) threw', e);
+                }
+            }
+            
+     
+            // Check if batch is full inside the HKL loop
+            if (trialsBatch >= batchSize) {
+                self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+                trialsBatch = 0;
+            }
+        
+        } 
+
+        progressCount++;
+        const progress = (progressCount / totalProgressIterations) * 80;
+        self.postMessage({ type: 'progress', payload: progress });
+    } 
+
+    // Send any remaining trials
+    if (trialsBatch > 0) {
+        self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
+    }
+    self.postMessage({ type: 'progress', payload: 100 });
+};
+// --- [END] REPLACEMENT FOR indexTriclinic ---
 
 
 
@@ -5250,8 +5851,8 @@ const findTransformedSolutions = (initialSolutions) => {
     };
        
 
- // --- EXECUTION & REPORTING
-    postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...` });
+
+    // --- EXECUTION & REPORTING
     self.postMessage({ type: 'progress', payload: 1 }); // Start at 1%
 
     if (systemToSearch === 'cubic') indexCubic();
@@ -5259,16 +5860,15 @@ const findTransformedSolutions = (initialSolutions) => {
     if (systemToSearch === 'hexagonal') indexTetragonalOrHexagonal('hexagonal');
     if (systemToSearch === 'orthorhombic') indexOrthorhombic();
     if (systemToSearch === 'monoclinic') indexMonoclinic();
+    if (systemToSearch === 'triclinic') indexTriclinic();
     
     self.postMessage({ type: 'progress', payload: 80 });
-    postMessage({ type: 'status', payload: `Analyzing transformations for ${systemToSearch}...` });
   
     findTransformedSolutions([...foundSolutions]);
     
   
     // Mark transform phase as 95% complete
     self.postMessage({ type: 'progress', payload: 95 });
-    postMessage({ type: 'status', payload: `Analyzing ${systemToSearch}...` });
     // ---
     
     foundSolutions.forEach(solution => self.postMessage({ type: 'solution', payload: solution }));
@@ -5278,6 +5878,11 @@ const findTransformedSolutions = (initialSolutions) => {
     self.postMessage({ type: 'done' });
     // ---
 };
+
+
+
+
+
 
 /*
 *** 21 oct 2025
@@ -5299,6 +5904,6 @@ const findTransformedSolutions = (initialSolutions) => {
 
 </script>
 
-<div id="app-footer">Combs, version 26 oct 2025</div>
+<div id="app-footer">Combs, version 05 nov 2025</div>
 </body>
 </html>
