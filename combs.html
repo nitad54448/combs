@@ -741,6 +741,11 @@ const WAVELENGTH_PRESETS = {
     let currentHklList = [];
     let xrdChart;
     let isIndexing = false;
+    
+    let lastIndexingStats = ''; // Stores the final trial count and speed
+    let cumulativeTrials = 0;
+    let indexingStartTime = 0;
+    
     let activeWorkers = [];
     let sortState = { column: 'm20', direction: 'desc' };
     let workerURL = null;    
@@ -2387,9 +2392,15 @@ ui.tthMinSlider.addEventListener('input', () => {
         if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
         
         const statusTextElement = document.getElementById('status-text');
-        if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)'; // <-- Set to "Trials: 0" with rate
+        if (statusTextElement) statusTextElement.textContent = 'Trials: 0 (0/s)';
 
         setUIState(true); 
+        
+        // --- [MODIFIED] Reset global stats ---
+        lastIndexingStats = ''; 
+        cumulativeTrials = 0;
+        indexingStartTime = performance.now(); // <-- Set global start time
+        // --- [END MODIFIED] ---
 
         // --- Switch to Solutions Tab
         ui.tabButtons.forEach(btn => btn.classList.remove('active'));
@@ -2406,11 +2417,6 @@ ui.tthMinSlider.addEventListener('input', () => {
         updateAllMarkers();
         showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
 
-        // --- [MODIFIED] Cumulative trial counter & timer ---
-        let cumulativeTrials = 0;
-        const startTime = performance.now(); // <-- Record start time
-        // --- [END MODIFIED] ---
-
         const baseParams = {
             peaks: filteredPeaks,
             wavelength: parseFloat(ui.wavelength.value),
@@ -2422,36 +2428,29 @@ ui.tthMinSlider.addEventListener('input', () => {
         };
 
         const totalWorkers = systemsToSearch.length;
-        const workerProgress = new Array(totalWorkers).fill(0); // This is for the progress bar
+        const workerProgress = new Array(totalWorkers).fill(0);
 
         systemsToSearch.forEach((system, workerIndex) => { 
             const worker = new Worker(workerURL);
             activeWorkers.push(worker);
 
-            // --- [MODIFIED `onmessage` HANDLER] ---
             worker.onmessage = (e) => {
                 const { type, payload } = e.data;
 
-                // --- Simplified message handling ---
                 if (type === 'trials_completed_batch') {
-                    cumulativeTrials += payload; // Add the batch from the worker
+                    cumulativeTrials += payload; // Use global var
                     
-                    // --- [NEW] Calculate rate ---
-                    const elapsedTimeSeconds = (performance.now() - startTime) / 1000;
-                    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0; // Avoid division by zero
-                    // --- [END NEW] ---
-
+                    const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000; // Use global var
+                    const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0; 
+                    
                     if (statusTextElement) {
-                         // Update text with cumulative trials and rate
                         statusTextElement.textContent = `Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
                     }
                 
                 } else if (type === 'status') {
-                    // Fallback, for any other messages
                     if (statusTextElement && cumulativeTrials === 0) statusTextElement.textContent = payload;
                 
                 } else if (type === 'progress') {
-                    // This updates the progress bar
                     workerProgress[workerIndex] = payload; 
                     const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
                     ui.progressBar.style.width = `${Math.min(100, totalProgress)}%`;
@@ -2478,15 +2477,19 @@ ui.tthMinSlider.addEventListener('input', () => {
                     activeWorkers = activeWorkers.filter(w => w !== worker);
                     
                     if (activeWorkers.length === 0) {
-                        finalizeIndexing(false);
-                        // --- [NEW] Final status update ---
-                        // Show final total and average rate
-                        const elapsedTimeSeconds = (performance.now() - startTime) / 1000;
+                        // --- [MODIFIED] Calculate final stats and set them *before* calling finalize ---
+                        const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
                         const trialsPerSecond = (elapsedTimeSeconds > 0) ? cumulativeTrials / elapsedTimeSeconds : 0;
+                        const finalStatus = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                        
+                        lastIndexingStats = finalStatus; // <-- SAVE GLOBALLY
+                        
                         if (statusTextElement) {
-                             statusTextElement.textContent = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                             statusTextElement.textContent = finalStatus;
                         }
-                        // --- [END NEW] ---
+                        
+                        finalizeIndexing(false);
+                        // --- [END MODIFIED] ---
                     }
                 }
             }; 
@@ -2576,22 +2579,34 @@ ui.tthMinSlider.addEventListener('input', () => {
 
     ui.startIndexingButton.addEventListener('click', startIndexing);
 
+
     ui.reportButton.addEventListener('click', () => {
         if (isIndexing) {
-            // Kill all running workers... check for memory leaks if workers are going crazy with NaNs ?
+            // Kill all running workers
             activeWorkers.forEach(w => w.terminate()); 
             activeWorkers = [];
             
-            // Call the finalize function (passing 'true' for "stopped by user")
-            // This will run the sieve, space group analysis, and then reset the UI.
-            finalizeIndexing(true); 
+            // --- [NEW] Calculate and set stats on STOP ---
+            const statusTextElement = document.getElementById('status-text');
+            const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
+            const trialsPerSecond = (elapsedTimeSeconds > 0) ? cumulativeTrials / elapsedTimeSeconds : 0;
+            const finalStatus = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+            
+            lastIndexingStats = finalStatus; // <-- SAVE GLOBALLY
+            
+            if (statusTextElement) {
+                 statusTextElement.textContent = finalStatus;
+            }
+            // --- [END NEW] ---
+
+            finalizeIndexing(true); // This re-enables the report button
             
         } else { 
             // If not indexing, just generate the report
             generatePDFReport(); 
         }
     });
-    
+
     const sortSolutions = () => {
         const { column, direction } = sortState;
         const dir = direction === 'asc' ? 1 : -1;
@@ -3218,7 +3233,6 @@ const formatWithError = (value, error) => {
     
 
 
-    /***** ---------- Convenience wrapper ---------- *****/
     function reduceToNiggliCell(sol, opts) {
       // Accepts your solution object (sol)
       const a = sol.a, b = sol.b || sol.a, c = sol.c || sol.a; // Handle cubic/tetragonal
@@ -3233,8 +3247,6 @@ const formatWithError = (value, error) => {
     }
 
 
-    
-// --- [UPDATED FUNCTION V9] Centered Cell Generator (Removed Volume Check) ---
 
 /**
  * Generates the conventional centered cell representations (I, F, A, B, C, R)
@@ -3292,11 +3304,9 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
                     const centeredBasis = rightMul(niggliBasis, transform);
                     const centeredCellParams = basisToCell(centeredBasis);
 
-                    // Check validity AND angle limits
                     if (Object.values(centeredCellParams).every(v => isFinite(v) && v > -1e-6) &&
                         [centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma].every(a => a >= minAngle && a <= maxAngle))
                     {
-                        // Use renamed helper function
                         const systemGuess = getSymmetryForEquivCells(centeredCellParams.a, centeredCellParams.b, centeredCellParams.c, centeredCellParams.alpha, centeredCellParams.beta, centeredCellParams.gamma);
 
                         const systemAllowed = (centeringType === 'I' && ['cubic', 'tetragonal', 'orthorhombic', 'monoclinic'].includes(systemGuess)) ||
@@ -3325,6 +3335,8 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
 
     return results;
 }
+
+
 
 const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
@@ -3358,9 +3370,6 @@ const generatePDFReport = async () => {
             const pdfWidth = doc.internal.pageSize.getWidth();
             const lambda = parseFloat(ui.wavelength.value);
             const tthError = parseFloat(ui.tthError.value);
-            
-            const tthMinVal = parseFloat(ui.tthMinSlider.value);
-            const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
             
             // --- fonts and sizes, see later, this is esthetics, osef
             const FONT = {
@@ -3437,7 +3446,6 @@ const generatePDFReport = async () => {
                 { label: '2theta Min (deg):', value: tthMinVal.toFixed(2) },
                 { label: '2theta Max (deg):', value: tthMaxVal.toFixed(2) },
             ];
-            // ---
     
             const col1X = margin;
             const col2X = margin + 85;
@@ -3463,6 +3471,22 @@ const generatePDFReport = async () => {
     
             // --- Indexing Solutions Summary Section ---
             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.H1).text('Indexing Solutions Summary', margin, yPos); yPos += 8;
+            
+            if (lastIndexingStats) {
+                // "Translate" the string:
+                // 1. Replace all non-breaking spaces (U+00A0) with regular spaces
+                // 2. Replace multiple spaces with a single space
+                const cleanedStats = lastIndexingStats
+                    .replace(/\u00A0/g, ' ')
+                    .replace(/\s+/g, ' ');
+
+                // Now print the clean string using the data font and matching table size
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY);
+                doc.text(cleanedStats, margin, yPos);
+                yPos += 7; // Add some space after
+            }
+            
+
             doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
             doc.text('Sys', margin, yPos);
             // Get N from the *first* solution, or fall back to peak count
@@ -3484,23 +3508,30 @@ const generatePDFReport = async () => {
                      case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
                      case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
                      case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
-                     // --- [ADDED] ---
-                     case 'triclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break; // Angles won't fit
+                     // --- [ADDED TRICLINIC] ---
+                     case 'triclinic': 
+                        paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
+                        doc.text(sol.system.substring(0,4), margin, yPos);
+                        doc.text(sol.m20.toFixed(2), margin + 15, yPos);
+                        doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
+                        doc.text(sol.volume.toFixed(2), margin + 45, yPos);
+                        doc.text(paramStr, margin + 75, yPos);
+                        yPos += 5; // Move to next line for angles
+                        paramStr = `al=${formatWithError(sol.alpha, p.s_alpha)}, be=${formatWithError(sol.beta, p.s_beta)}, ga=${formatWithError(sol.gamma, p.s_gamma)}`;
+                        doc.text(paramStr, margin + 75, yPos); // Angles on new line
+                        yPos += 5;
+                        return; // Skip the default doc.text
+                     // --- [END ADDED] ---
                 }
                 doc.text(sol.system.substring(0,4), margin, yPos);
                 doc.text(sol.m20.toFixed(2), margin + 15, yPos);
-                doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos); // Use fN_20
+                doc.text((sol.fN_20 || 0).toFixed(2), margin + 30, yPos);
                 doc.text(sol.volume.toFixed(2), margin + 45, yPos);
                 doc.text(paramStr, margin + 75, yPos);
                 yPos += 5;
             });
     
-
-
-
-
-
-// --- Detailed Solution Pages ---
+            // --- Detailed Solution Pages ---
             displayedSolutions.forEach((sol, solIndex) => {
                 doc.addPage(); yPos = 20;
                 
@@ -3519,30 +3550,25 @@ const generatePDFReport = async () => {
                      case 'hexagonal': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
                      case 'orthorhombic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`); break;
                      case 'monoclinic': paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`); break;
-                     // --- [ADDED] ---
-                     case 'triclinic':
+                     // --- [ADDED TRICLINIC] ---
+                     case 'triclinic': 
                         paramLines.push(`a = ${formatWithError(sol.a, p.s_a)} A`, `b = ${formatWithError(sol.b, p.s_b)} A`, `c = ${formatWithError(sol.c, p.s_c)} A`);
-                        paramLines.push(`alpha = ${formatWithError(sol.alpha, p.s_alpha)} deg`);
-                        paramLines.push(`beta  = ${formatWithError(sol.beta, p.s_beta)} deg`);
-                        paramLines.push(`gamma = ${formatWithError(sol.gamma, p.s_gamma)} deg`);
+                        paramLines.push(`alpha = ${formatWithError(sol.alpha, p.s_alpha)} deg`, `beta = ${formatWithError(sol.beta, p.s_beta)} deg`, `gamma = ${formatWithError(sol.gamma, p.s_gamma)} deg`);
                         break;
+                     // --- [END ADDED] ---
                 }
                 paramLines.forEach(line => { doc.text(line, margin, yPos); yPos += 4; });
                 doc.text(`Volume = ${sol.volume.toFixed(2)} A^3`, margin, yPos); 
                
                 yPos += 4; 
-
-
-
-
-                               doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Back to body font
+    
+                doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Back to body font
                 if (sol.zero_correction !== undefined) { 
                     doc.text(`Zero Error (2theta) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); 
                     yPos += 4; 
                 }
                
-             //      yPos += 4; // Spacing after parameters
-                              const n_20_pdf = sol.n_20 || Math.min(20, reportPeaks.length);
+                const n_20_pdf = sol.n_20 || Math.min(20, reportPeaks.length);
                 const m_20_str = `M(${n_20_pdf}) = ${sol.m20.toFixed(2)}`;
                 const f_20_str = `F(${n_20_pdf}) = ${(sol.fN_20 || 0).toFixed(2)}`;
                 doc.text(`${m_20_str}, ${f_20_str}`, margin, yPos); 
@@ -3556,52 +3582,52 @@ const generatePDFReport = async () => {
     
                yPos += 7;
              
-
                 // --- 3. NIGGLI REDUCED CELL (Moved up, Non-bold) ---
-                doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
-                yPos += 6;
+                // --- [MODIFIED] Do not show for triclinic (it's already reduced)
+                if (sol.system !== 'triclinic') {
+                    doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
+                    yPos += 6;
 
-                try {
-                    const niggliResult = reduceToNiggliCell(sol);
-                    const nCell = niggliResult.cell;
+                    try {
+                        const niggliResult = reduceToNiggliCell(sol);
+                        const nCell = niggliResult.cell;
 
-                    const niggliLines = [
-                        `a = ${nCell.a.toFixed(4)} A`,
-                        `b = ${nCell.b.toFixed(4)} A`,
-                        `c = ${nCell.c.toFixed(4)} A`,
-                        `alpha = ${nCell.alpha.toFixed(3)} deg`,
-                        `beta  = ${nCell.beta.toFixed(3)} deg`,
-                        `gamma = ${nCell.gamma.toFixed(3)} deg`                       
-                    ];
+                        const niggliLines = [
+                            `a = ${nCell.a.toFixed(4)} A`,
+                            `b = ${nCell.b.toFixed(4)} A`,
+                            `c = ${nCell.c.toFixed(4)} A`,
+                            `alpha = ${nCell.alpha.toFixed(3)} deg`,
+                            `beta  = ${nCell.beta.toFixed(3)} deg`,
+                            `gamma = ${nCell.gamma.toFixed(3)} deg`                       
+                        ];
 
-                    doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
+                        doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.TABLE_BODY); // Use smaller table body font
 
-                    const col1X_niggli = margin + 5;
-                    const col2X_niggli = margin + 65;
+                        const col1X_niggli = margin + 5;
+                        const col2X_niggli = margin + 65;
 
-                    doc.text(niggliLines[0], col1X_niggli, yPos);
-                    doc.text(niggliLines[3], col2X_niggli, yPos);
+                        doc.text(niggliLines[0], col1X_niggli, yPos);
+                        doc.text(niggliLines[3], col2X_niggli, yPos);
+                        yPos += 4;
+
+                        doc.text(niggliLines[1], col1X_niggli, yPos);
+                        doc.text(niggliLines[4], col2X_niggli, yPos);
+                        yPos += 4;
+
+                        doc.text(niggliLines[2], col1X_niggli, yPos);
+                        doc.text(niggliLines[5], col2X_niggli, yPos);
+                        yPos += 5;
+
+                    } catch (niggliError) {
+                        console.error("Niggli reduction failed:", niggliError);
+                        doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
+                        doc.text('Reduction failed. See console for error.', margin + 5, yPos);
+                        yPos += 5;
+                    }
+                
                     yPos += 4;
-
-                    doc.text(niggliLines[1], col1X_niggli, yPos);
-                    doc.text(niggliLines[4], col2X_niggli, yPos);
-                    yPos += 4;
-
-                    doc.text(niggliLines[2], col1X_niggli, yPos);
-                    doc.text(niggliLines[5], col2X_niggli, yPos);
-                    yPos += 5;
-
-                } catch (niggliError) {
-                    console.error("Niggli reduction failed:", niggliError);
-                    doc.setFont(FONT.DATA, 'italic').setFontSize(SIZE.BODY);
-                    doc.text('Reduction failed. See console for error.', margin + 5, yPos);
-                    yPos += 5;
                 }
-                
-                
-               yPos += 4;
-
-
+                // --- [END MODIFIED] ---
  
                 // --- 5. LATTICE CENTERING (Non-bold) ---
                 if (sol.analysis) {
@@ -3609,8 +3635,6 @@ const generatePDFReport = async () => {
                      doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY).text(sol.analysis.centering, margin + 42, yPos); 
                      yPos += 7; // Spacing
                      
-
-
                      // --- 6. POSSIBLE SPACE GROUPS (Non-bold) ---
                      doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Extinctions:', margin, yPos); // Changed to H2, normal
                      let extinctionList = sol.analysis.detectedExtinctions || [];
@@ -3623,14 +3647,10 @@ const generatePDFReport = async () => {
                          doc.setFont(FONT.DATA, 'italic'); // Use italic for "None"
                      }
 
-                     // Define the starting X position and max width for the extinction text
                      const extinctionX = margin + 42;
                      const extinctionMaxWidth = pdfWidth - extinctionX - margin; // Max width available
-
-                     // Split the text into lines that fit the max width
                      const extinctionLines = doc.splitTextToSize(extinctionText, extinctionMaxWidth);
 
-                     // Print the lines, adjusting yPos for each line
                      doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Ensure normal font
                      extinctionLines.forEach(line => {
                          if (yPos > 280) { // Check for page break before printing line
@@ -3640,7 +3660,6 @@ const generatePDFReport = async () => {
                          doc.text(line, extinctionX, yPos);
                          yPos += 4; // Move down for the next line (adjust line spacing if needed)
                      });
-                     // yPos += 3; // Add a bit more space after the block if needed (adjust from 7)
                      yPos += 3; // Total spacing after extinctions (was 7 before)
 
 
@@ -3655,7 +3674,6 @@ const generatePDFReport = async () => {
                          sgList.forEach(sg => {
                              const v = sg.violations || 0;
                              if (!groupsByViolation[v]) groupsByViolation[v] = [];
-                             // Store settings under the same number together for grouping later
                              const existingEntry = groupsByViolation[v].find(entry => entry.number === sg.number);
                              if (existingEntry) {
                                  existingEntry.settings.push({ symbol: sg.symbol, violations: sg.violatedReflections });
@@ -3767,8 +3785,6 @@ const generatePDFReport = async () => {
                 yPos += 4; 
                 if (yPos > 255) { doc.addPage(); yPos = 20; }
     
-
-
             /* --- REFLECTION TABLE ... */
     
                 doc.setFont(FONT.LABEL, 'bold').setFontSize(SIZE.TABLE_HEADER);
@@ -3783,7 +3799,7 @@ const generatePDFReport = async () => {
                      return; 
                 }
     
-                const ambiguousHkls = sol.analysis.ambiguousHkls || new Set();
+                const ambiguousHkls = (sol.analysis ? sol.analysis.ambiguousHkls : new Set()) || new Set();
                 const corrected_tth_obs = reportPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
                 const reportLines = []; 
                 const assignedHkls = new Set();
@@ -3843,9 +3859,6 @@ const generatePDFReport = async () => {
             document.body.style.cursor = 'default';
         }
     };
-
-
-
 
 
 
