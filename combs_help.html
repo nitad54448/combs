@@ -199,7 +199,7 @@
 
             <h4>3. Solutions Tab</h4>
             <ul>
-                <li><strong>Solutions Table:</strong> Lists all valid solutions found, with their system, parameters, volume, M(20) score, and F(20) score. Click a row to select it for visual analysis on the chart.</li>
+                <li><strong>Solutions Table:</strong> Lists all valid solutions found, with their system, parameters, volume, M(20) score, and F(20) score. Click a row to select it for visual analysis on the chart.<br>When the search is finished, you can filter the solutions based on symmetry by enabling/disabling crystal systems.</li>
             </ul>
 
             <h3>Results Area</h3>
@@ -445,6 +445,20 @@
                 <li><strong>High Error / Low Resolution:</strong> The <code>2θ Error</code> might be set too tight for broad peaks. Try slightly increasing this value.</li>
                 <li><strong>Spurious Solution:</strong> A random solution can sometimes fit a few lines by chance. Visual inspection is key; if major observed peaks are missed by the calculated pattern, the solution is incorrect regardless of the M(20) value.</li>
             </ul>
+
+                        <h4>Test files</h4>
+            <ul>
+                <li>In the github repository you will find several test files</li>
+                <li><strong>Monoclinic_test_1.xy</strong> This a synchrotron XRD file for a monoclinic sample, measured with a monochromatic radiation of 0.79764 A. The values of the lattice parameters are 19.877, 8.196, 11.243 and beta 106.08.</li>
+                <li><strong>C61Br2_079764.XY</strong> A dibromo-methano fullerene measured at ESRF with a wavelength of 0.79764 A. It contains an impurity peak at about 16.24 deg 2 theta. There are many solutions, a most likely is a cubic I, with a=18.92 A.</li>
+                <li><strong>SPDDRR1_sample2_0692.xy</strong> Data taken from a round robin, measured at Daresbury with 0.692 A. The probable cell is orthorhombic with a=10.983, b=12.852, c=15.740 A.</li>
+                <li><strong>SPDDRR1_sample2_Cu.xy</strong> Same sample as the previous listing, measured with a Cu Ka laboratory instrument.</li>
+                <li><strong>SPDDRR1_zhu1_Cu.xy</strong> Sample 1 from the same Round Robin, measured with a Cu Ka X-ray tube; likely a monoclinic with a=7.672, b=9.624, c=7.076, beta=106.24</li>
+                <li><strong>PbSO4.xra and FAP.xra</strong> Laboratory cu Ka samples: orthorhombic and hexagonal, respectively.</li>
+            </ul>
+
+
+            
         </section>
 
 
