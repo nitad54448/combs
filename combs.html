@@ -115,7 +115,7 @@
         #solutions-tab-content .control-group { flex-grow: 1; display: flex; flex-direction: column; margin-bottom: 0;}
         #solutions-table-container { flex-grow: 1; overflow-y: auto; background-color: var(--medium-bg); border-radius: 0.375rem; border: 1px solid var(--border-color); }
 
-        /* --- LED Indicator Styles --- */
+        /* --- LED pour solutions --- */
         .led-indicator {
             width: 8px;
             height: 8px;
@@ -198,9 +198,7 @@
     top: -15px;
     left: 115%;
     margin-left: 10px;
-    /* This transition applies when hiding the tooltip */
     transition: opacity 0.3s;
-    /* Wait 1 second after the mouse leaves before starting to hide */
     transition-delay: 2s;
     box-shadow: 0 4px 12px rgba(0,0,0,0.25);
 }
@@ -214,10 +212,8 @@
 .help-tooltip-container::after {
     content: '';
     position: absolute;
-    /* This creates a transparent element over the gap */
     left: 100%;
     width: 10px; 
-    /* This makes it cover the full height of the icon */
     top: 0;
     bottom: 0;
 }
@@ -359,8 +355,6 @@
     <p><b>Pan:</b> Click and drag the chart to pan.</p>
     <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
 </div>
-
-
 
                     </div>
                 </div>
@@ -571,7 +565,7 @@ const WAVELENGTH_PRESETS = {
         peakListBody: document.getElementById('peak-list-body'),
         indexingControls: document.getElementById('indexing-controls'),
         
-        // --- *** NEW/MODIFIED: Wavelength Controls *** ---
+        // --- Wavelength Controls  ---
         wavelengthPreset: document.getElementById('wavelength-preset'),
         stripKa2Checkbox: document.getElementById('strip-ka2-checkbox'),
         wavelength: document.getElementById('wavelength'), // This is the K-alpha1 input
@@ -607,9 +601,7 @@ const WAVELENGTH_PRESETS = {
     
     // Global variable for space group data ---
     let spaceGroupData = null;
-
-    // Function to load space group JSON data ---
-   // Function to load space group JSON data ---
+   // Function to load space group JSON data, error if not found ---
     async function loadSpaceGroupData() {
         try {
             const response = await fetch('space_groups_all_settings.json');
@@ -659,7 +651,7 @@ const WAVELENGTH_PRESETS = {
         });
     });
 
-    // --- LOGARITHMIC SLIDER CONFIGURATION ---
+    // --- this is in log scale
     const minPeak = 0.1;
     const maxPeak = 20;
     const minLog = Math.log(minPeak);
@@ -686,7 +678,6 @@ const WAVELENGTH_PRESETS = {
     };
     const debouncedFindPeaks = debounce(findPeaks, 250);
     
-    // --- Debounc
     const debouncedUpdateAndRedraw = debounce(() => {
         updateWorkingData();
         if (xrdChart) {
@@ -749,7 +740,6 @@ const WAVELENGTH_PRESETS = {
     let activeWorkers = [];
     let sortState = { column: 'm20', direction: 'desc' };
     let workerURL = null;    
-    // --- Dynamic Pruning Constants ---
     const MAX_SOLUTIONS_BEFORE_PRUNING = 50;
     const PRUNE_TO_COUNT = 40; // Prune down to this many
 
@@ -766,9 +756,7 @@ const WAVELENGTH_PRESETS = {
         
         // Keep only the top PRUNE_TO_COUNT solutions
         solutions = solutions.slice(0, PRUNE_TO_COUNT);
-        
-        // The main 'onmessage' handler will call sortSolutions() *after* this,
-        // which will re-sort the newly pruned list based on the user's UI selection.
+
     };
 
 
@@ -786,7 +774,7 @@ const WAVELENGTH_PRESETS = {
     };
     setupWorker();
 
-    // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
+    // --- systematic absences
     const max_hkl_analysis = 10;
 
 
@@ -809,7 +797,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
         const l_max = Math.ceil(c / d_min) + 1;
 
         const processReflection = (h, k, l, inv_d_sq) => {
-            // This final check is still necessary
+            
             if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return; 
             const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
             if (sinThetaSq <= 1) {
@@ -891,19 +879,19 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                 const sinBetaSq = sinBeta * sinBeta;
                 if (sinBetaSq < 1e-6) return []; // Invalid cell
 
-                // --- OPTIMIZATION: Pre-calculate reciprocal parameters ---
+                // --- Pre-calculate reciprocal parameters 
                 const a_star_sq = 1 / (a * a * sinBetaSq);
                 const b_star_sq = 1 / (b * b);
                 const c_star_sq = 1 / (c * c * sinBetaSq);
                 // This is the coefficient for the h*l term (q = ... - h*l*ac_star_term + ...)
                 const ac_star_term = 2 * cosBeta / (a * c * sinBetaSq); 
-                // ---
+               
 
                 for (let h = -h_max; h <= h_max; h++) {
                     const h_term = h * h * a_star_sq;
                     const h_l_coeff = h * ac_star_term; // (h * ac_star_term)
                     
-                    // --- OPTIMIZATION 1: Check min q for this 'h' (at k=0) ---
+                    // --- OPTIMIZATION 1: Check min q for this 'h' (at k=0) 
                     // Vertex of the parabola q(l) = (c_star_sq * l^2) - (h_l_coeff * l) + h_term
                     const l_vertex_h_only = (c_star_sq !== 0) ? h_l_coeff / (2 * c_star_sq) : 0;
                     const q_min_for_h = (c_star_sq * l_vertex_h_only * l_vertex_h_only) - (h_l_coeff * l_vertex_h_only) + h_term;
@@ -911,13 +899,13 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                     if (q_min_for_h > q_max_limit) {
                         continue; // Skip this 'h' entirely
                     }
-                    // ---
+                    
                     
                     for (let k = 0; k <= k_max; k++) {
                         const k_term = (k * k) * b_star_sq;
                         const hk_term = h_term + k_term; // This is the q-value for l=0
 
-                        // --- OPTIMIZATION 2: Check min q for this (h, k) ---
+                        // --- OPTIMIZATION 2: Check min q for this (h, k) 
                         // Vertex of the parabola q(l) = (c_star_sq * l^2) - (h_l_coeff * l) + hk_term
                         const l_vertex = l_vertex_h_only; // Vertex l-coordinate is independent of k
                         const q_min_for_hk = (c_star_sq * l_vertex * l_vertex) - (h_l_coeff * l_vertex) + hk_term;
@@ -928,7 +916,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                             // If k>0 failed, skip to the next k.
                             else continue; 
                         }
-                        // ---
+                       
 
                         for (let l = -l_max; l <= l_max; l++) {
                             if (h === 0 && k === 0 && l === 0) continue;
@@ -948,7 +936,7 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
                 break;
             
            
-                // --- [ADDED] TRICLINIC CASE ---
+                // --- triclinic, le 5 nov 2025, à tester
             case 'triclinic':
                 const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
                 const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
@@ -1063,7 +1051,6 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         new Map(indexed_hkls.map(r => [`${r.h},${r.k},${r.l}`, r])).values()
     );
 
-    // This filter will now work correctly because all_calc_hkls is a unique list
     const unambiguous_hkls = unique_indexed_hkls.filter(refl => {
         const nearbyCount = all_calc_hkls.filter(calc => {
             if (calc.h === refl.h && calc.k === refl.k && calc.l === refl.l) return false;
@@ -1114,7 +1101,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
 
 /*
  * Determines the most likely lattice centering based on observed reflections.
- * RETURNS DETAILS OF VIOLATING REFLECTIONS (up to 2 per type).
+ * return detaisl of problems (up to 2 per type).
  */
 function determineCentering(indexed_hkls, system) {
     const centeringTests = {
@@ -1132,11 +1119,11 @@ function determineCentering(indexed_hkls, system) {
         'orthorhombic': ['P', 'I', 'F', 'A', 'B', 'C'],
         'hexagonal': ['P'], // Rhombohedral R handled separately if needed,... à revoir 
         'monoclinic': ['P', 'C'], // Standard setting
-        'triclinic': ['P'] // --- [ADDED] ---
+        'triclinic': ['P'] // 
     };
 
     const violations = {};
-    const violationDetails = {}; // <-- NEW: Store details here
+    const violationDetails = {}; // Store details here
     const MAX_DETAILS_TO_STORE = 2; // <-- Limit details stored
 
     for (const [key, test] of Object.entries(centeringTests)) {
@@ -1147,13 +1134,13 @@ function determineCentering(indexed_hkls, system) {
             );
             violations[key] = violatingPeaks.length;
 
-            // <-- NEW: Store details if count is low -->
+           
             if (violations[key] > 0 && violations[key] <= MAX_DETAILS_TO_STORE) {
                 violationDetails[key] = violatingPeaks.slice(0, MAX_DETAILS_TO_STORE).map(p => ({
                     h: p.h, k: p.k, l: p.l, tth: p.tth // Store measured tth
                 }));
             }
-            // <-- END NEW -->
+            
         }
     }
 
@@ -1168,6 +1155,7 @@ function determineCentering(indexed_hkls, system) {
      } else if (plausible.length === 0) {
         plausible = ['P']; // Fallback
      }
+//actuellement je mets violations P=0; ce qui est un peu débile mais bon, à revoir la fonction generatePDFreport
 
     let finalCenterings;
     if (plausible.includes('F')) finalCenterings = ['F'];
@@ -1188,11 +1176,10 @@ function determineCentering(indexed_hkls, system) {
         plausibleCenterings: finalCenterings,
         description: finalCenterings.map(c => centeringTests[c]?.name || c).join(' or '),
         violations: violations,
-        violationDetails: violationDetails, // <-- NEW: Return details
+        violationDetails: violationDetails, 
         minViolations: minViolations
     };
 }
-
 
 
 
@@ -1283,7 +1270,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
     
     const validSettings = [];
     
-    // --- [NEW] Create a Set of detected rules for fast lookup ---
+    //  Create a Set of detected rules for fast lookup ---
     const detectedExtinctionsSet = new Set(detectedExtinctions.filter(e => e !== "None detected"));
     
     for (const sg of candidateGroups) {
@@ -1303,7 +1290,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
             
             if (violations.count <= maxViolations) {
                 
-                // --- [NEW] SCORING LOGIC ---
+                // Scoring
                 let matchScore = 0;
                 const sgRulesSet = new Set();
                 
@@ -1334,7 +1321,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                 if (detectedExtinctionsSet.size === 0 && sgRulesSet.size === 0) {
                     matchScore = 1; 
                 }
-                // --- [END NEW] SCORING LOGIC ---
+                
 
                 validSettings.push({
                     number: sgNumber,
@@ -1344,7 +1331,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                     centrosymmetric: sg.centrosymmetric,
                     violations: violations.count,
                     violatedReflections: violations.details,
-                    matchScore: matchScore // <-- Add the new score to the object
+                    matchScore: matchScore //  Add the new score to the object
                 });
             }
         }
@@ -1359,7 +1346,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
         
         // 2. Secondary sort: New matchScore (descending)
         if (a.matchScore !== b.matchScore) {
-            return b.matchScore - a.matchScore; // Higher score is better
+            return b.matchScore - a.matchScore;
         }
         
         // 3. Tertiary sort: Space Group Number (descending)
@@ -1389,8 +1376,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
                 (h_int + l_int) % 2 === 0
             );
         }
-        // --- End Special case ---
-
+        
         // --- Handle comma-separated conditions (e.g., "h=2n, l=2n") ---
         const conditions = condStr.split(',').map(s => s.trim());
 
@@ -1499,7 +1485,7 @@ function rankSpaceGroups(indexed_hkls, system, allowedCenterings, spaceGroupData
             if (!isViolation) {
                 for (const cond of generalRules) {
                      // Check if the *zone* itself matches 'hkl' or if the reflection *also* matches a more specific zone covered by this general rule
-                     // Example: An hkl rule like "h+k=2n" applies to (110), even though its specific zone is hk0.
+                     // Example: An hkl rule like "h+k=2n" applies to (110), even though its specific zone is hk0. Attention : Do not change the JSON format..
                      if (zone === 'hkl' || !rules[zone] || !rules[zone].some(zoneCond => zoneCond === cond)) {
                           if (!satisfiesCondition(h, k, l, cond)) {
                                isViolation = true;
@@ -1537,10 +1523,9 @@ function getReflectionZone(h, k, l) {
     return 'hkl';
 }
 
-    // --- *** NEW: Ka2 Stripping and Wavelength UI Logic *** ---
 
     /**
-     * Applies the recursive Rachinger algorithm to strip Ka2.
+     * Applies the recursive Rachinger algorithm to strip Ka2.... Maybe a deconvolution is better, a little expensive in calc ?
      * I_ka1(i) = I_obs(i) - R * I_ka1(j)
      * where 'j' is the index of the Ka1 peak that *causes* the Ka2 contribution at 'i'.
      */
@@ -1635,7 +1620,6 @@ function getReflectionZone(h, k, l) {
     };
 
     /**
-/**
      * Handles changes to the wavelength preset dropdown.
      */
     const handleWavelengthPresetChange = () => {
@@ -1792,7 +1776,7 @@ function getReflectionZone(h, k, l) {
             }
 
             // --- Fallback for all other 2-column-like formats ---
-            // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.
+            // This will attempt to parse: .xy, .csv, .txt, .dat, .asc, etc.... à revoir les fichiers type dans Convert 2
             return parseDataFile(fileContent, fileName);
         };
     
@@ -1857,7 +1841,7 @@ function getReflectionZone(h, k, l) {
                 intensity.push(y);
             });
 
-            // --- Final checks (log warnings to console) ---
+            // --- Final checks (log warnings to console) 
             if (tth.length > 10) { 
                 if (positive_x_values / tth.length < 0.5) {
                     console.warn(`Data File (${fileName}) Warning: Most 2-theta (X) values are zero or negative. This is unusual for XRD data.`);
@@ -1991,7 +1975,7 @@ function getReflectionZone(h, k, l) {
             y: Math.max(0, workingExperimentalData.intensity[i])
         }));
 
-        // Hide placeholder, show chart, custom cursor depuis sept 2025
+        // Hide placeholder, show chart, custom cursor (depuis sept 2025)
         ui.placeholder.style.display = 'none';
         ui.resultsContainer.style.display = 'flex';
         
@@ -2142,10 +2126,6 @@ ui.tthMinSlider.addEventListener('input', () => {
     };
 
 
-
-
-
-    
 
     function findPeaks() {
         // Now uses workingExperimentalData
@@ -2339,7 +2319,7 @@ ui.tthMinSlider.addEventListener('input', () => {
                     const m20_i = solutions[i].m20;
                     const m20_j = solutions[j].m20;
                     
-                    const m20_percent_tolerance = 0.02; // <-- This is 2%
+                    const m20_percent_tolerance = 0.02; // now 2%, let's see if this is ok
 
                     // Check if i is significantly better than j (more than 2% higher than j)
                     if (m20_i > (m20_j * (1.0 + m20_percent_tolerance))) {
@@ -2351,7 +2331,7 @@ ui.tthMinSlider.addEventListener('input', () => {
                         break;
                     
                     } else {
-                        // M(20) are effectively equal, check for monoclinic beta convention
+                        // M(20) are  "equal", check for monoclinic beta convention
                         if (solutions[i].system === 'monoclinic') {
                             const beta_i = solutions[i].beta || 90;
                             const beta_j = solutions[j].beta || 90;
@@ -2396,11 +2376,11 @@ ui.tthMinSlider.addEventListener('input', () => {
 
         setUIState(true); 
         
-        // --- [MODIFIED] Reset global stats ---
+        // Reset global stats ---
         lastIndexingStats = ''; 
         cumulativeTrials = 0;
         indexingStartTime = performance.now(); // <-- Set global start time
-        // --- [END MODIFIED] ---
+        
 
         // --- Switch to Solutions Tab
         ui.tabButtons.forEach(btn => btn.classList.remove('active'));
@@ -2440,7 +2420,7 @@ ui.tthMinSlider.addEventListener('input', () => {
                 if (type === 'trials_completed_batch') {
                     cumulativeTrials += payload; // Use global var
                     
-                    const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000; // Use global var
+                    const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000; 
                     const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0; 
                     
                     if (statusTextElement) {
@@ -2477,19 +2457,18 @@ ui.tthMinSlider.addEventListener('input', () => {
                     activeWorkers = activeWorkers.filter(w => w !== worker);
                     
                     if (activeWorkers.length === 0) {
-                        // --- [MODIFIED] Calculate final stats and set them *before* calling finalize ---
+                        //Calculate final stats and set them *before* calling finalize ---
                         const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
                         const trialsPerSecond = (elapsedTimeSeconds > 0) ? cumulativeTrials / elapsedTimeSeconds : 0;
                         const finalStatus = `Trials: ${cumulativeTrials.toLocaleString()} (Avg: ${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
                         
-                        lastIndexingStats = finalStatus; // <-- SAVE GLOBALLY
+                        lastIndexingStats = finalStatus; 
                         
                         if (statusTextElement) {
                              statusTextElement.textContent = finalStatus;
                         }
                         
                         finalizeIndexing(false);
-                        // --- [END MODIFIED] ---
                     }
                 }
             }; 
@@ -2586,7 +2565,7 @@ ui.tthMinSlider.addEventListener('input', () => {
             activeWorkers.forEach(w => w.terminate()); 
             activeWorkers = [];
             
-            // --- [NEW] Calculate and set stats on STOP ---
+            // Calculate and set stats on STOP ---
             const statusTextElement = document.getElementById('status-text');
             const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
             const trialsPerSecond = (elapsedTimeSeconds > 0) ? cumulativeTrials / elapsedTimeSeconds : 0;
@@ -2597,7 +2576,7 @@ ui.tthMinSlider.addEventListener('input', () => {
             if (statusTextElement) {
                  statusTextElement.textContent = finalStatus;
             }
-            // --- [END NEW] ---
+            
 
             finalizeIndexing(true); // This re-enables the report button
             
@@ -2633,12 +2612,11 @@ ui.tthMinSlider.addEventListener('input', () => {
                 case 'hexagonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 120`; break;
                 case 'orthorhombic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
                 case 'monoclinic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, ${sol.beta.toFixed(3)}, 90`; break;
-                // --- [ADDED] ---
+                // depuis 5 nov 25
                 case 'triclinic': 
                     paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; 
                     anglesCell = `&alpha; = ${sol.alpha.toFixed(3)}<br>&beta; = ${sol.beta.toFixed(3)}<br>&gamma; = ${sol.gamma.toFixed(3)}`; 
                     break;
-                // --- [END ADD] ---
                 default: paramsCell = `${sol.a.toFixed(4)}`; anglesCell = `-`;
             }
             if (sol.zero_correction) {
@@ -2722,7 +2700,7 @@ scales: {
         min: -yMax * 0.05, 
         max: yMax * 1.1, 
         suggestedMin: 0,
-        offset: false, // <-- Add it here too for consistency
+        offset: false, 
         ticks: {
             includeBounds: false, 
             callback: function(value, index, ticks) {
@@ -2895,7 +2873,7 @@ scales: {
                     }
                 }
              }
-        } else { // --- [MODIFIED] --- Triclinic
+        } else { //  Triclinic
              for (let h = -h_max; h <= h_max; h++) {
                 for (let k = -k_max; k <= k_max; k++) { 
                     for (let l = -l_max; l <= l_max; l++) {
@@ -3106,7 +3084,7 @@ const formatWithError = (value, error) => {
       // Start from a primitive basis (if needed)
       let B = cellToBasis(a, b, c, alpha, beta, gamma);
       
-      // --- MODIFICATION: Handle complex centering strings like 'Body-centered (I)' ---
+      // --- Handle complex centering strings like 'Body-centered (I)' ---
       let centeringKey = (centering || 'P').toUpperCase();
       const match = centeringKey.match(/\(([A-Z])\)/); // Look for (I), (F), (C), etc.
       if (match) {
@@ -3115,7 +3093,6 @@ const formatWithError = (value, error) => {
           // Fallback: take the first letter if it's not a complex string
           centeringKey = centeringKey.charAt(0);
       }
-      // --- END MODIFICATION ---
 
       const Cp = primitiveTransformByCentering[centeringKey];
       
@@ -3277,7 +3254,7 @@ const formatWithError = (value, error) => {
 
 
     function reduceToNiggliCell(sol, opts) {
-      // Accepts your solution object (sol)
+      // Accepts solution object (sol)
       const a = sol.a, b = sol.b || sol.a, c = sol.c || sol.a; // Handle cubic/tetragonal
       const alpha = sol.alpha ?? 90;
       const beta = sol.beta ?? 90;
@@ -3386,7 +3363,7 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
 
 
 
-
+//main report function, on peut optimiser...
 const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
@@ -3570,7 +3547,6 @@ const generatePDFReport = async () => {
             	 	doc.text(paramStr, margin + 75, yPos); // Angles on new line
             	 	yPos += 5;
             	 	return; // Skip the default doc.text
-          	 // --- [END ADDED] ---
       	}
       	doc.text(sol.system.substring(0,4), margin, yPos);
       	doc.text(sol.m20.toFixed(2), margin + 15, yPos);
@@ -3589,9 +3565,6 @@ const generatePDFReport = async () => {
       	doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}`, margin, yPos); 
       	yPos += 8; // Increased spacing after main title
       	
-      	// =================================================================
-      	// --- START: REFACTORED PARAMETERS AND VOLUME BLOCK ---
-      	// =================================================================
       	
       	// --- 2. PARAMETERS AND VOLUME (REFACTORED FOR ALIGNMENT) ---
       	doc.setFont(FONT.DATA, 'normal').setFontSize(SIZE.BODY); // Use Monospace for alignment
@@ -3669,20 +3642,13 @@ const generatePDFReport = async () => {
   	});
     
   	yPos += 3; // Add back spacing after the block
-      	
-  	// =================================================================
-  	// --- END: REFACTORED PARAMETERS AND VOLUME BLOCK ---
-  	// =================================================================
   	
   	// --- 3. NIGGLI REDUCED CELL (Moved up, Non-bold) ---
-  	// --- [MODIFIED] Do not show for triclinic (it's already reduced)
+  	// --- Do not show for triclinic (it's already reduced)
   	if (sol.system !== 'triclinic') {
       	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
       	yPos += 6;
 
-      	// =================================================================
-      	// --- START: REFACTORED NIGGLI CELL BLOCK ---
-      	// =================================================================
       	try {
         	 	const niggliResult = reduceToNiggliCell(sol);
         	 	const nCell = niggliResult.cell;
@@ -3732,13 +3698,11 @@ const generatePDFReport = async () => {
         	 	doc.text('Reduction failed. See console for error.', margin + 5, yPos);
         	 	yPos += 5;
       	}
-      	// =================================================================
-      	// --- END: REFACTORED NIGGLI CELL BLOCK ---
-      	// =================================================================
+
       	
        	yPos += 4;
       	}
-      	// --- [END MODIFIED] ---
+      
  
       	// --- 5. LATTICE CENTERING (Non-bold) ---
       	if (sol.analysis) {
@@ -3774,7 +3738,7 @@ const generatePDFReport = async () => {
           	 yPos += 3; // Total spacing after extinctions (was 7 before)
 
 
-          	 // --- 7. POSSIBLE SPACE GROUPS (Non-bold) ---
+          	 // --- 7. POSSIBLE SPACE GROUPS 
           	 if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
             	  if (yPos > 260) { doc.addPage(); yPos = 20; }
             	  doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Possible Space Groups:', margin, yPos); // Changed to H2, normal
@@ -4114,6 +4078,7 @@ const determinant3x3 = (M) => {
            M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
 };
 
+//plus rapide que math.js
 const invert3x3 = (M) => {
     const det = determinant3x3(M);
     if (Math.abs(det) < 1e-14) return null; // Singular
@@ -4170,18 +4135,6 @@ const getVolumeTriclinic = (cell) => {
     const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
     return (V_sq > 0) ? Math.sqrt(V_sq) : 0;
 };
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -4421,7 +4374,7 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     }
                 }
             }
-        // --- [END ADD] ---
+        
         } else {
             // --- ORIGINAL PATH FOR OTHER SYSTEMS ---
             const { a } = cell;
@@ -4616,7 +4569,7 @@ const extractCellFromFit = (params, system) => {
         break;
 }
 
-        } catch (e) { return null; } // <-- THIS IS THE FIX
+        } catch (e) { return null; } 
         
         if (isNaN(cell.a) || isNaN(cell.b) || isNaN(cell.c) || isNaN(cell.alpha) || isNaN(cell.beta) || isNaN(cell.gamma)) return null;
 
@@ -4886,7 +4839,7 @@ const extractCellFromFit = (params, system) => {
 
         return { solution: x, covarianceMatrix: V };
     };
-    // --- END REPLACE ---
+    
 
 
 
@@ -4956,7 +4909,6 @@ const extractCellFromFit = (params, system) => {
                     }
                 }
             }
-        // --- [ADDED] ---
         } else if (system === 'triclinic') {
             // Uniqueness: l > 0, or l=0, k > 0, or l=0, k=0, h > 0
             for (let h = -max_tri; h <= max_tri; h++) {
@@ -4972,7 +4924,7 @@ const extractCellFromFit = (params, system) => {
                     }
                 }
             }
-        // --- [END ADD] ---
+        
         } else if (system === 'orthorhombic') {
             // --- Orthorhombic ---
             // All positive octant (h,k,l) are unique
@@ -5049,7 +5001,7 @@ const extractCellFromFit = (params, system) => {
                 best_match = hkl; 
             }
             
-            // --- [MODIFIED] --- Apply break optimization only to non-general systems
+            // --- Apply break optimization only to non-general systems
             if (system !== 'monoclinic' && system !== 'triclinic' && q_calc > q_o + tolerance * 2) {
                  break; 
             }
@@ -5061,7 +5013,6 @@ const extractCellFromFit = (params, system) => {
         }
     }
     
-    // --- [MODIFIED] ---
     const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7, triclinic: 7 };
     
     if (initial_indexed_pairs.length < min_indexed[system]) {
@@ -5155,8 +5106,6 @@ const extractCellFromFit = (params, system) => {
     final_solution_to_post.fN_all = fN_all; // F(N_all)
     final_solution_to_post.n_all = n_all;   // N_all
     final_solution_to_post.errors = propagateErrors(system, fitResult_no_zero, initial_cell);
-
-
 
 
 
@@ -5292,7 +5241,6 @@ const indexCubic = () => {
         const totalIterations = Math.min(peaks.length, 10);
         if (totalIterations === 0) return;
 
-        // --- [MODIFIED] Trial counting ---
         const hkls = [];
         for (let h = 1; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) {
             if (!h && !k && !l) continue;
@@ -5301,19 +5249,16 @@ const indexCubic = () => {
         
         let trialsBatch = 0;
         const batchSize = 100; // Post message every 100 trials
-        // --- [END MODIFIED] ---
 
         for (let i = 0; i < totalIterations; i++) { 
             for (const hkl of hkls) {
                 refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
                 
-                // --- [MODIFIED] ---
                 trialsBatch++;
                 if (trialsBatch >= batchSize) {
                     self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
                     trialsBatch = 0;
                 }
-                // --- [END MODIFIED] ---
             }
             const progress = ((i + 1) / totalIterations) * 80;
             self.postMessage({ type: 'progress', payload: progress });
@@ -5329,7 +5274,6 @@ const indexCubic = () => {
         const totalIterations = i_depth;
         if (totalIterations === 0) return;
 
-        // --- [MODIFIED] Trial counting ---
         const hkls = [];
         for (let h = 0; h <= max_hkl; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_hkl; l++) {
             if (!h && !k && !l) continue;
@@ -5338,7 +5282,6 @@ const indexCubic = () => {
         
         let trialsBatch = 0;
         const batchSize = 5000; // Post message every 5000 trials
-        // --- [END MODIFIED] ---
 
         for (let i = 0; i < totalIterations; i++) {
             for (let j = i + 1; j < j_depth; j++) {
@@ -5349,13 +5292,11 @@ const indexCubic = () => {
                         const l2 = hkl2[2];
                         const S2 = system === 'tetragonal' ? hkl2[0] * hkl2[0] + hkl2[1] * hkl2[1] : hkl2[0] * hkl2[0] + hkl2[0] * hkl2[1] + hkl2[1] * hkl2[1];
                         
-                        // --- [MODIFIED] ---
                         trialsBatch++;
                         if (trialsBatch >= batchSize) {
                             self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
                             trialsBatch = 0;
                         }
-                        // --- [END MODIFIED] ---
 
                         const det = S1 * l2 * l2 - S2 * l1 * l1;
                         if (Math.abs(det) < 1e-6) continue;
@@ -5381,23 +5322,20 @@ const indexCubic = () => {
         const totalIterations = max_p - 2;
         if (totalIterations <= 0) return;
         
-        // --- [MODIFIED] Trial counting ---
         let trialsBatch = 0;
         const batchSize = 50000; // Post message every 50k trials
-        // --- [END MODIFIED] ---
+
 
         for (let i = 0; i < totalIterations; i++) { 
             for (let j = i + 1; j < max_p - 1; j++) {
                 for (let k = j + 1; k < max_p; k++) {
                     for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
                         
-                        // --- [MODIFIED] ---
                         trialsBatch++;
                         if (trialsBatch >= batchSize) {
                             self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
                             trialsBatch = 0;
                         }
-                        // --- [END MODIFIED] ---
 
                         const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2]);
                         const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
@@ -5418,7 +5356,7 @@ const indexCubic = () => {
         }
     };
 
-    // --- [START] REPLACEMENT FOR indexMonoclinic ---
+    // indexMonoclinic ---
 const indexMonoclinic = (opts = {}) => {
     // Options (override if needed)
     const MAX_BASIS = opts.maxBasis || 50;        // max basis size to use
@@ -5511,7 +5449,7 @@ const indexMonoclinic = (opts = {}) => {
         if (cell.c < CELL_LIMITS.c[0] || cell.c > CELL_LIMITS.c[1]) return false;
         return true;
     };
-    // --- [END FIX] ---
+    
 
     // Prepare combinations generator (exhaustive or sampling)
     const combos = [];
@@ -5574,12 +5512,12 @@ const indexMonoclinic = (opts = {}) => {
         [3, 0, 1, 2], [3, 0, 2, 1], [3, 1, 0, 2], [3, 1, 2, 0], [3, 2, 0, 1], [3, 2, 1, 0]
     ];
 
-    // --- [MODIFIED] Trial counting ---
+
     let trialsBatch = 0;
     const batchSize = 10000; // Send update every 10k permutations
     let progressCount = 0;
     const totalProgressIterations = combos.length || 1;
-    // --- [END MODIFIED] ---
+  
 
     // Main loops
     for (const peakIndices of combos) {
@@ -5602,13 +5540,12 @@ const indexMonoclinic = (opts = {}) => {
             const hkls = [h1,h2,h3,h4];
             const M = buildM(hkls);
             
-            // --- [OPTIMIZATION] ---
+
             const test_fit = solve4x4(M, q_values);
             if (!test_fit) {
                 trialsBatch += 24; // Add all 24 skipped permutations
                 continue; // Matrix M is singular, skip all 24 permutations
             }
-            // --- [END OPTIMIZATION] ---
 
             for (const p of all_q_indices_permutations) {
                 trialsBatch++; // Increment for each permutation
@@ -5659,13 +5596,12 @@ const indexMonoclinic = (opts = {}) => {
                 }
             } 
             
-            // --- [MOVED BATCH LOGIC] ---
             // Check if batch is full inside the HKL loop
             if (trialsBatch >= batchSize) {
                 self.postMessage({ type: 'trials_completed_batch', payload: trialsBatch });
                 trialsBatch = 0;
             }
-            // --- [END MOVED BATCH LOGIC] ---
+
         } 
 
         progressCount++;
@@ -5679,9 +5615,8 @@ const indexMonoclinic = (opts = {}) => {
     }
     self.postMessage({ type: 'progress', payload: 100 });
 };
-// --- [END] REPLACEMENT FOR indexMonoclinic ---
 
-// --- [START] REPLACEMENT FOR indexTriclinic ---
+// --- indexTriclinic
 const indexTriclinic = (opts = {}) => {
     // 6-parameter search, needs 6 peaks and 6 HKLs
     const MAX_BASIS = opts.maxBasis || 30;
@@ -5699,9 +5634,7 @@ const indexTriclinic = (opts = {}) => {
     const num_hkls = basis_hkls.length;
     if (num_hkls < 6) return;
     
-    // --- [FIXED] ---
-    // All helper functions are now correctly defined *inside* this function
-    
+
     // --- Generate the 6! = 720 permutations ---
     // (Uses the GLOBAL generatePermutations)
     const all_q_indices_permutations_6x6 = generatePermutations(6);
@@ -5761,7 +5694,7 @@ const indexTriclinic = (opts = {}) => {
         if (cell.gamma < 45 || cell.gamma > 135) return false;
         return true;
     };
-    // --- [END FIX] ---
+    
 
     // Prepare peak combinations
     const combos = [];
@@ -5799,13 +5732,12 @@ const indexTriclinic = (opts = {}) => {
         }
     }
 
-    // --- [MODIFIED] Trial counting ---
+    
     let trialsBatch = 0;
-    const batchSize = 10000; // Send update every 10k permutations
+    const batchSize = 20000; // Send update every 20k permutations
     let progressCount = 0;
     const totalProgressIterations = combos.length || 1;
-    // --- [END MODIFIED] ---
-
+    
     // --- Main Loop ---
     for (const peakIndices of combos) {
         
@@ -5816,13 +5748,13 @@ const indexTriclinic = (opts = {}) => {
             const hkls = hklIndices.map(idx => basis_hkls[idx]);
             const M = buildM_Triclinic(hkls);
 
-            // --- [OPTIMIZATION] ---
+            
             const test_fit = solve6x6(M, q_values);
             if (!test_fit) {
                 trialsBatch += 720; // Add all 720 skipped permutations
                 continue; 
             }
-            // --- [END OPTIMIZATION] ---
+            
 
             // --- Full permutation loop ---
             for (const p of all_q_indices_permutations_6x6) {
@@ -5863,7 +5795,7 @@ const indexTriclinic = (opts = {}) => {
     }
     self.postMessage({ type: 'progress', payload: 100 });
 };
-// --- [END] REPLACEMENT FOR indexTriclinic ---
+
 
 
 
