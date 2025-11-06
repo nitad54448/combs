@@ -4890,7 +4890,7 @@ const extractCellFromFit = (params, system) => {
         
         const hkls = [];
         const max_h = 6; // Max index for non-mono systems
-        const max_mono = 4; // Max index for mono system
+        const max_mono = 3; // Max index for mono system
         const max_tri = 2; // Max index for triclinic (6x6 solver is sensitive)
 
         if (system === 'monoclinic') {
@@ -5238,7 +5238,7 @@ const extractCellFromFit = (params, system) => {
 
 const indexCubic = () => {
         const h_max = 8;
-        const totalIterations = Math.min(peaks.length, 10);
+        const totalIterations = Math.min(peaks.length, 12);
         if (totalIterations === 0) return;
 
         const hkls = [];
@@ -5248,7 +5248,7 @@ const indexCubic = () => {
         }
         
         let trialsBatch = 0;
-        const batchSize = 100; // Post message every 100 trials
+        const batchSize = 1000; // Post message every 100 trials
 
         for (let i = 0; i < totalIterations; i++) { 
             for (const hkl of hkls) {
@@ -5270,7 +5270,7 @@ const indexCubic = () => {
     };
 
     const indexTetragonalOrHexagonal = (system) => {
-        const max_hkl = 5, i_depth = Math.min(10, peaks.length), j_depth = Math.min(10, peaks.length);
+        const max_hkl = 5, i_depth = Math.min(12, peaks.length), j_depth = Math.min(12, peaks.length);
         const totalIterations = i_depth;
         if (totalIterations === 0) return;
 
@@ -5318,7 +5318,7 @@ const indexCubic = () => {
     };
 
     const indexOrthorhombic = () => {
-        const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 30);
+        const max_p = Math.min(12, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 50);
         const totalIterations = max_p - 2;
         if (totalIterations <= 0) return;
         
@@ -5358,11 +5358,11 @@ const indexCubic = () => {
 
     // indexMonoclinic ---
 const indexMonoclinic = (opts = {}) => {
-    // Options (override if needed)
+    // Options )
     const MAX_BASIS = opts.maxBasis || 50;        // max basis size to use
-    const MAX_PEAKS = opts.maxPeaks || 20;       // use first N peaks
+    const MAX_PEAKS = opts.maxPeaks || 10;       // use first N peaks
     const SAMPLE_COMBINATIONS = opts.sampleCombinations || false; 
-    const HKL_SAMPLE_SIZE = opts.hklSampleSize || 10000;
+    const HKL_SAMPLE_SIZE = opts.hklSampleSize || 100000;
     const MIN_DET = opts.minDeterminant || 1e-8; 
     const CELL_LIMITS = opts.cellLimits || { a: [2, 50], b: [2, 50], c: [2, 50] }; 
 
@@ -5578,7 +5578,7 @@ const indexMonoclinic = (opts = {}) => {
                 const sinBetaSq = 1 - Math.cos(betaRad)**2;
 
                 if (sinBetaSq < 1e-6) continue;
-                if (beta < 90.0 || beta > 150.0) continue;
+                if (beta < 90.0 || beta > 160.0) continue;
 
                 const a = 1 / Math.sqrt(A * sinBetaSq);
                 const b = 1 / Math.sqrt(B);
@@ -5619,8 +5619,8 @@ const indexMonoclinic = (opts = {}) => {
 // --- indexTriclinic
 const indexTriclinic = (opts = {}) => {
     // 6-parameter search, needs 6 peaks and 6 HKLs
-    const MAX_BASIS = opts.maxBasis || 30;
-    const MAX_PEAKS = opts.maxPeaks || 20;
+    const MAX_BASIS = opts.maxBasis || 50;
+    const MAX_PEAKS = opts.maxPeaks || 10;
     const MIN_DET = opts.minDeterminant || 1e-8; 
     const CELL_LIMITS = opts.cellLimits || { a: [2, 50], b: [2, 50], c: [2, 50] };
 
@@ -5689,9 +5689,9 @@ const indexTriclinic = (opts = {}) => {
         if (cell.a < CELL_LIMITS.a[0] || cell.a > CELL_LIMITS.a[1]) return false;
         if (cell.b < CELL_LIMITS.b[0] || cell.b > CELL_LIMITS.b[1]) return false;
         if (cell.c < CELL_LIMITS.c[0] || cell.c > CELL_LIMITS.c[1]) return false;
-        if (cell.alpha < 45 || cell.alpha > 135) return false;
-        if (cell.beta  < 45 || cell.beta  > 135) return false;
-        if (cell.gamma < 45 || cell.gamma > 135) return false;
+        if (cell.alpha < 60 || cell.alpha > 150) return false;
+        if (cell.beta  < 60 || cell.beta  > 150) return false;
+        if (cell.gamma < 60 || cell.gamma > 150) return false;
         return true;
     };
     
@@ -5714,7 +5714,7 @@ const indexTriclinic = (opts = {}) => {
 
     // Prepare HKL combinations (sample if too many)
     const hklCombos = [];
-    const HKL_COMBOS_LIMIT = 50000; // Limit for HKL combinations
+    const HKL_COMBOS_LIMIT = 500000; // Limit for HKL combinations
     if ((num_hkls**6) / 720 > HKL_COMBOS_LIMIT) {
         // Sample
         for (let t = 0; t < HKL_COMBOS_LIMIT; t++) {
@@ -5734,7 +5734,7 @@ const indexTriclinic = (opts = {}) => {
 
     
     let trialsBatch = 0;
-    const batchSize = 20000; // Send update every 20k permutations
+    const batchSize = 50000; // Send update every 20k permutations
     let progressCount = 0;
     const totalProgressIterations = combos.length || 1;
     

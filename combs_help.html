@@ -263,31 +263,42 @@
                     $$ Q_{obs, 3} = h_3^2 A + k_3^2 B + l_3^2 C $$
                     It assigns <em>triplets</em> of trial $(hkl)$ vectors from a pre-calculated basis set of 30 reflections to find $a, b, c$.
                 </li>
-                <li>
-                    <strong>Monoclinic (4 parameters, $A, B, C, D$):</strong>
-                    Solves a 4x4 system for the four reciprocal parameters ($A, B, C, D$) in the equation $Q_{hkl} = A h^2 + B k^2 + C l^2 + D hl$.
-                    A full exhaustive search is computationally infeasible. Instead, the program uses a deep <strong>random sampling strategy</strong>.
-                    <br><br>
-                    It iterates through all combinations of 4 peaks from the first 20 (approx. 4,845 combos). For <em>each</em> peak quadruplet, it tests <strong>10,000</strong> randomly sampled HKL-quadruplets. These HKLs are drawn from a curated basis set of 50 common, low-index reflections. Finally, it tests all 24 permutations of assigning the peaks to the HKLs.
-                    <br><br>
-                    This defines a total search space of $\binom{20}{4} \times 10,000 \times 24 \approx \textbf{1.16 billion combinations}$. The program intelligently skips redundant calculations (e.g., for singular matrices), but this number represents the scale of the search.
-                </li>
-                <li>
-                    <strong>Triclinic (6 parameters, $A, B, C, D, E, F$):</strong>
-                    Solves the full 6x6 system for all reciprocal parameters: $Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk$.
-                    This is the most computationally demanding search.
-                    <br><br>
-                    It iterates through all combinations of 6 peaks from the first 20 (approx. 38,760 combos). For <em>each</em> peak sextuplet, it tests <strong>50,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of 30 low-index reflections. Finally, it tests all 720 (6!) permutations of assigning the peaks to the HKLs.
-                    <br><br>
-                    This defines a total search space of $\binom{20}{6} \times 50,000 \times 720 \approx \textbf{1.4 trillion combinations}$. The program uses optimizations to skip singular (linearly dependent) HKL sets, but this number represents the massive scale of the semi-exhaustive search.
-                </li>
-            </ul>
-            
+
+<li>
+    <strong>Monoclinic (4 parameters, $A, B, C, D$):</strong>
+    Solves a 4x4 system for the four reciprocal parameters.
+    <br><br>
+    It iterates through all combinations of 4 peaks from the first <strong>10</strong> (210 combos). For <em>each</em> peak quadruplet, it tests <strong>100,000</strong> randomly sampled HKL-quadruplets drawn from a basis set of <strong>50</strong> reflections. Finally, it tests all 24 permutations of assigning the peaks to the HKLs.
+    <br><br>
+    This defines a total search space of $\binom{10}{4} \times 100,000 \times 24 \approx \textbf{504 million combinations}$. This search covers approximately <strong>43%</strong> of all possible HKL combinations from the 50-reflection basis set.
+    <br>
+    <em>Parameters to configure in `indexMonoclinic`: <code>MAX_PEAKS</code> (10), <code>MAX_BASIS</code> (50), and <code>HKL_SAMPLE_SIZE</code> (100000).</em>
+    <br>
+    <em>Note: Search is constrained to cell edges between 2 and 50 Å, and a $\beta$ angle between 90° and 160°.</em>
+</li>
+
+
+<li>
+    <strong>Triclinic (6 parameters, $A, B, C, D, E, F$):</strong>
+    Solves the full 6x6 system for all reciprocal parameters. This is the most computationally demanding search.
+    <br><br>
+    It iterates through all combinations of 6 peaks from the first <strong>10</strong> (210 combos). For <em>each</em> peak sextuplet, it tests <strong>500,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of <strong>50</strong> reflections. Finally, it tests all 720 (6!) permutations.
+    <br><br>
+    This defines a total search space of $\binom{10}{6} \times 500,000 \times 720 \approx \textbf{75.6 billion combinations}$. Due to the massive size of the 50-reflection basis space (>15 million combinations), this samples approximately <strong>3.15%</strong> of the total space, relying on the high probability that correct indexing involves the simplest reflections.
+    <br>
+    <em>Parameters to configure in `indexTriclinic`: <code>MAX_PEAKS</code> (10), <code>MAX_BASIS</code> (50), and <code>HKL_COMBOS_LIMIT</code> (500000).</em>
+    <br>
+    <em>Note: Search is constrained to cell edges between 2 and 50 Å, and all angles ($\alpha, \beta, \gamma$) between 60° and 150°.</em>
+</li>
+
+
+
+
            
             <blockquote>
                 <strong>A Note on Performance:</strong>
                 <p>
-                    These search spaces are vast, but the program is highly optimized. At the time of this writing (November 2025), the testing speed on a typical desktop machine, e.g. an Intel I7-12700, is about $10^6$ trials per second for low symmetry systems. This is the case if the tab is visible, or active, otherwise the program is throttled by the browser.
+                    These search spaces are vast, for a full monoclinic search it can take about 10-20 minutes (and about one day for the triclinic !) but you can stop the program much earlier if you see a good solution. At the time of this writing (November 2025), the testing speed on a typical desktop machine, e.g. an Intel I7-12700, is about $10^5$ to $10^6$ trials per second for low symmetry systems. This is the case if the tab is visible, or active, otherwise the program is throttled by the browser.
                 </p>
             </blockquote>
            
