@@ -289,9 +289,9 @@
                     <br><br>
                     It iterates through all combinations of 6 peaks from the first <strong>10</strong> ($\binom{10}{6} = 210$ combos).
                     <br><br>
-                    Because the full HKL space ($\binom{80}{6} \approx 302$ million) is too large for a full search, it instead tests <strong>10,000,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of <strong>80</strong> simple reflections.
+                    Because the full HKL space ($\binom{80}{6} \approx 302$ million) is too large for a full search, it instead tests <strong>20,000,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of <strong>80</strong> simple reflections.
                     <br><br>
-                    This defines a total search space of $210 \times 10,000,000 = \textbf{2.1 Billion combinations}$. This samples approximately <strong>3.31%</strong> of the total basis space, relying on the high probability that correct indexing involves the simplest reflections.
+                    This defines a total search space of $210 \times 20,000,000 = \textbf{4.2 Billion combinations}$. This samples approximately <strong>6.6%</strong> of the total basis space, relying on the high probability that correct indexing involves the simplest reflections. Note that I do not have reliable triclinic data to test this system.
                     <br>
                     <em>Note: Search is constrained to cell edges between 2 and 50 Å, and all angles ($\alpha, \beta, \gamma$) between 60° and 150°.</em>
                 </li>
