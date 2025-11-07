@@ -1845,11 +1845,11 @@ const startIndexing = async () => { // Make it async
             
             const qObsArray = new Float32Array(q_obs);
             
-            const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 80);
+            const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 120);
             const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
             hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
-            const max_p = Math.min(12, q_obs.length);
+            const max_p = Math.min(10, q_obs.length);
             const peak_combos_raw = [];
             for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
             for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
@@ -1858,16 +1858,30 @@ const startIndexing = async () => { // Make it async
             }
             const peakCombos = new Uint32Array(peak_combos_raw);
 
-            const num_hkls = hkl_basis_raw.length;
+
+
+
+const num_hkls = hkl_basis_raw.length; // This is 60
             const hkl_combos_raw = [];
-            const HKL_COMBOS_LIMIT = 10000000; // 
-            for (let t = 0; t < HKL_COMBOS_LIMIT; t++) {
-                let s = new Set();
-                while (s.size < 6) s.add(Math.floor(Math.random() * num_hkls));
-                const arr = Array.from(s).sort((a,b)=>a-b);
-                hkl_combos_raw.push(...arr);
+            
+            // Exhaustive search: C(60, 4) = 1,462,455 combinations
+            for (let n1 = 0; n1 < num_hkls - 3; n1++) {
+                for (let n2 = n1 + 1; n2 < num_hkls - 2; n2++) {
+                    for (let n3 = n2 + 1; n3 < num_hkls - 1; n3++) {
+                        for (let n4 = n3 + 1; n4 < num_hkls; n4++) {
+                            hkl_combos_raw.push(n1, n2, n3, n4);
+                        }
+                    }
+                }
             }
+            
             const hklCombos = new Uint32Array(hkl_combos_raw);
+
+
+
+
+
+
             
             if (peakCombos.length === 0 || hklCombos.length === 0) {
                 throw new Error("Not enough peaks or HKLs to run triclinic search.");
@@ -1939,13 +1953,13 @@ const startIndexing = async () => { // Make it async
             
             const qObsArray = new Float32Array(q_obs);
             
-            const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, 60);
+            const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, 80);
             const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
             hkl_basis_raw.forEach((hkl, i) => {
                 hklBasisArray.set(hkl, i * 4);
             });
 
-            const max_p = Math.min(12, q_obs.length);
+            const max_p = Math.min(10, q_obs.length);
             const peak_combos_raw = [];
             for (let i=0; i<max_p-3; i++) for (let j=i+1; j<max_p-2; j++)
             for (let k=j+1; k<max_p-1; k++) for (let l=k+1; l<max_p; l++) {
@@ -1955,7 +1969,7 @@ const startIndexing = async () => { // Make it async
 
             const num_hkls = hkl_basis_raw.length;
             const hkl_combos_raw = [];
-            const HKL_COMBOS_LIMIT = 5000000; // samples
+            const HKL_COMBOS_LIMIT = 2000000; // samples
             for (let t = 0; t < HKL_COMBOS_LIMIT; t++) {
                 let s = new Set();
                 while (s.size < 4) s.add(Math.floor(Math.random() * num_hkls));

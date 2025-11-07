@@ -235,6 +235,8 @@
             </ul>
         </section>
 
+
+
         <section id="indexing-method">
             <h2>Indexing Algorithm and Search Parameters</h2>
             <p>The program employs a dedicated search routine for each crystal system. This is an "exhaustive" or "brute-force" trial method that iterates through combinations of low-angle peaks and low-integer Miller indices. The number of peaks required to generate a trial cell depends on the number of unknown lattice parameters.</p>
@@ -267,27 +269,29 @@
                 </li>
 
                 <li>
-                    <strong>Monoclinic (4 parameters, $A, B, C, D$) - WebGPU Accelerated:</strong>
+                    <strong>Monoclinic (4 parameters, $A, B, C, D$) - WebGPU Accelerated (Exhaustive):</strong>
                     Solves a 4x4 system for the four reciprocal parameters.
                     <br><br>
-                    This search is performed on the <strong>GPU (WebGPU)</strong> for massive parallelization. It iterates through all combinations of 4 peaks from the first <strong>10</strong> ($\binom{10}{4} = 210$ combos).
+                    This search is performed on the <strong>GPU (WebGPU)</strong>. It iterates through all combinations of 4 peaks from the first <strong>10</strong> ($\binom{10}{4} = 210$ combos).
                     <br><br>
-                    For <em>each</em> peak quadruplet, it tests <strong>5,000,000</strong> randomly sampled HKL-quadruplets. These HKLs are drawn from a basis set of <strong>60</strong> simple reflections.
+                    For <em>each</em> peak quadruplet, it tests <strong>every possible combination</strong> of 4 HKLs drawn from a basis set of <strong>80</strong> simple reflections.
                     <br><br>
-                    This defines a total search space of $210 \times 5,000,000 = \textbf{1.05 Billion combinations}$. This large sample size (over 340% of the $\binom{60}{4} \approx 1.46M$ unique HKL combos) provides extremely high coverage of the search space.
+                    The total HKL combinations are $\binom{80}{4} = 1,581,580$.
+                    <br>
+                    The total search space is $210 \times 1,581,580 = \textbf{332,131,800 combinations}$. This is a fully exhaustive search of this HKL basis set, guaranteeing 100% coverage.
                     <br>
                     <em>Note: Search is constrained to cell edges between 2 and 50 Å, and a $\beta$ angle between 90° and 150°.</em>
                 </li>
 
                 <li>
-                    <strong>Triclinic (6 parameters, $A, B, C, D, E, F$) - WebGPU Accelerated:</strong>
+                    <strong>Triclinic (6 parameters, $A, B, C, D, E, F$) - WebGPU Accelerated (Random Sample):</strong>
                     Solves the full 6x6 system for all reciprocal parameters. This is the most computationally demanding search, executed entirely on the <strong>GPU (WebGPU)</strong>.
                     <br><br>
                     It iterates through all combinations of 6 peaks from the first <strong>10</strong> ($\binom{10}{6} = 210$ combos).
                     <br><br>
-                    For <em>each</em> peak sextuplet, it tests <strong>10,000,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of <strong>80</strong> simple reflections.
+                    Because the full HKL space ($\binom{80}{6} \approx 302$ million) is too large for a full search, it instead tests <strong>10,000,000</strong> randomly sampled HKL-sextuplets drawn from a basis set of <strong>80</strong> simple reflections.
                     <br><br>
-                    This defines a total search space of $210 \times 10,000,000 = \textbf{2.1 Billion combinations}$. This samples approximately <strong>3.31%</strong> of the total $\binom{80}{6} \approx 301.8M$ basis space, relying on the high probability that correct indexing involves the simplest reflections.
+                    This defines a total search space of $210 \times 10,000,000 = \textbf{2.1 Billion combinations}$. This samples approximately <strong>3.31%</strong> of the total basis space, relying on the high probability that correct indexing involves the simplest reflections.
                     <br>
                     <em>Note: Search is constrained to cell edges between 2 and 50 Å, and all angles ($\alpha, \beta, \gamma$) between 60° and 150°.</em>
                 </li>
@@ -307,6 +311,8 @@
            
 
         </section>
+
+
 
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
