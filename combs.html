@@ -5318,12 +5318,12 @@ const indexCubic = () => {
     };
 
     const indexOrthorhombic = () => {
-        const max_p = Math.min(12, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 50);
+        const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 50);
         const totalIterations = max_p - 2;
         if (totalIterations <= 0) return;
         
         let trialsBatch = 0;
-        const batchSize = 50000; // Post message every 50k trials
+        const batchSize = 20000; // Post message every 50k trials
 
 
         for (let i = 0; i < totalIterations; i++) { 
@@ -5965,6 +5965,6 @@ const findTransformedSolutions = (initialSolutions) => {
 
 </script>
 
-<div id="app-footer">Combs, 06 nov 2025</div>
+<div id="app-footer">Combs, 07 nov 2025</div>
 </body>
 </html>
