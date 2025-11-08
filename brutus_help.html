@@ -291,7 +291,7 @@ The total search space is $210 \times 3,921,225 = \textbf{823,457,250 combinatio
                 <br><br>
                 <em><strong>Note on GPU Memory & Tweaking:</strong> This full set of HKL combinations requires ~26.64 GB of memory, which is larger than most GPUs buffer limit (e.g., 2.1 GB for a Nvidia T1000 8Gb GPU). To solve this, the program automatically chunks this 26.64 GB task into smaller pieces. It checks your GPU's maximum buffer size and dynamically calculates the number of chunks required (e.g., a 2.1 GB card would run ~15 chunks of ~1.9 GB). The search is then run sequentially on each chunk. The number of chunks will be listed in the console. Be patient during data transfer to GPU. The triclinic testfile should take about 20 minutes on a regular GPU.</em>
                 <br><br>
-                <em><strong>To Tweak:</strong> The search is now always exhaustive. To change the <strong>100-HKL</strong> basis set, edit the `max_tri` variable in the `get_hkl_search_list` function within `worker-logic.js`. To change the <strong>10-peak</strong> basis, edit the `max_p` variable in `brutus.html`.</em>
+                <em><strong>To Tweak:</strong> The search is exhaustive, in this hkl range, for monoclinic and triclinic systems. To change the <strong>100-HKL</strong> basis set, edit the `max_tri` variable in the `get_hkl_search_list` function within `worker-logic.js`. To change the <strong>10-peak</strong> basis, edit the `max_p` variable in `brutus.html`.</em>
                 
                 <br>
                 <em>Note: Search is constrained to cell edges between 2 and 50 Å, and all angles ($\alpha, \beta, \gamma$) between 60° and 150°.</em>
@@ -479,7 +479,12 @@ The total search space is $210 \times 3,921,225 = \textbf{823,457,250 combinatio
                 <li><strong>SPDDRR1_sample2_0692.xy</strong> Data taken from a round robin, measured at Daresbury with 0.692 A. The probable cell is orthorhombic with a=10.983, b=12.852, c=15.740 A.</li>
                 <li><strong>SPDDRR1_sample2_Cu.xy</strong> Same sample as the previous listing, measured with a Cu Ka laboratory instrument.</li>
                 <li><strong>SPDDRR1_zhu1_Cu.xy</strong> Sample 1 from the same Round Robin, measured with a Cu Ka X-ray tube; likely a monoclinic with a=7.672, b=9.624, c=7.076, beta=106.24</li>
-                <li><strong>PbSO4.xra and FAP.xra</strong> Laboratory cu Ka samples: orthorhombic and hexagonal, respectively.</li>
+                <li><strong>PbSO4.xra and FAP.xra</strong> Laboratory Cu Ka samples: orthorhombic and hexagonal, respectively.</li>
+            
+              <li><strong>P-1_sim_5_6_7_86_91_96.txt</strong> This is a simulated powder diffraction pattern for a P-1 lattice, wavelenght 1.7 A, and the lattice parameters a=5.0, b=6.0, c=7.0, alpha=86.0, beta=91.0 and gamma=96.0 deg. On a Windows PC, with Chrome and Nvidia T1000 8GPU card, it takes a few minutes to find a solution with M(20)=86.89 (or an equivalent one, such as a=6.000, b=6.998, c=4.997, alpha=91.0, beta=83.99 and gamma=93.99 deg).
+                On the CPU version of this indexing program (see combs.html) a solution will be found after more than 24 hours.</li>
+
+            
             </ul>
 
             
