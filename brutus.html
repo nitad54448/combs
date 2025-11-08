@@ -467,7 +467,7 @@
                                 </div>
                                 <div>
                                     <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
-                                    <input type="number" id="impurity-peaks" value="0" min="0" max="5" step="1" class="control-input">
+                                    <input type="number" id="impurity-peaks" value="0" min="0" max="4" step="1" class="control-input">
                                 </div>
                             </div>
                             
@@ -1756,6 +1756,34 @@ let lastThrottleTime = 0;
 
 
 //
+ /* Calculates combinations C(n, k) = "n choose k"
+ * Uses the stable multiplicative formula: (n/1) * ((n-1)/2) * ... * ((n-k+1)/k)
+ */
+function combinations(n, k) {
+    if (k < 0 || k > n) {
+        return 0;
+    }
+    if (k === 0 || k === n) {
+        return 1;
+    }
+    // Use the identity C(n, k) == C(n, n-k) for efficiency
+    if (k > n / 2) {
+        k = n - k;
+    }
+    
+    let res = 1;
+    for (let i = 1; i <= k; i++) {
+        // (n - i + 1) is equivalent to (n, n-1, n-2, ...)
+        res = res * (n - i + 1) / i;
+    }
+    
+    // Round to handle potential floating-point inaccuracies
+    return Math.round(res);
+}
+
+
+
+//
 // 8 nov - full search, crazy, on GPU for mono and triclinic
     const startIndexing = async () => { // Make it async
 
@@ -2057,8 +2085,8 @@ if (webgpuSystems.includes('triclinic')) {
                     
                     const qObsArray = new Float32Array(q_obs);
                     
-                    // Use the 80-HKL basis set
-                    const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 80);
+                    // Use the 80-HKL basis set// changed to 100 on 8 nov
+                    const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 100);
                     // console.table(hkl_basis_raw);
 
                     const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
@@ -2076,28 +2104,39 @@ if (webgpuSystems.includes('triclinic')) {
 
                                        
                     const num_hkls = hkl_basis_raw.length; // 80
+                    const K_VALUE = 6; // Triclinic uses 6-HKL combos
                      
                     // 1. Get User's True Limit
                     const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
                     
                     // 2. Calculate combos per chunk (24 bytes per combo)
                     //  use 90% of the buffer to be safe.
-                    const combosPerChunk = Math.floor((userMaxBuffer * 0.90) / 24); 
+
+                    const BYTES_PER_COMBO = K_VALUE * 4; // 6 indices * 4 bytes/index = 24 bytes
+            const combosPerChunk = Math.floor((userMaxBuffer * 0.90) / BYTES_PER_COMBO);
+
+
+
+       //             const combosPerChunk = Math.floor((userMaxBuffer * 0.90) / 24); 
 
                     // 3. Define Total Task
-                    const TOTAL_EXHAUSTIVE_COMBOS = 302342850; // C(80, 6)
+                  const TOTAL_EXHAUSTIVE_COMBOS = combinations(num_hkls, K_VALUE);
 
                     // 4. Calculate Dynamic Number of Chunks
                     const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
 
-                    console.log(`User max buffer: ${userMaxBuffer} bytes`);
-                    console.log(`Calculated combos per chunk: ${combosPerChunk.toLocaleString()}`);
-                    console.log(`Total exhaustive combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
-                    console.log(`Dynamically calculated chunks: ${numChunks}`);
                     
+                    console.log(`User max buffer: ${userMaxBuffer} bytes`);
+            console.log(`Using n=${num_hkls}, k=${K_VALUE} for triclinic search.`);
+            console.log(`Calculated combos per chunk: ${combosPerChunk.toLocaleString()}`);
+            console.log(`Total exhaustive combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+            console.log(`Dynamically calculated chunks: ${numChunks}`);
 
-                    // C(80, 6) arrays of [n1, n2, n3, n4, n5, n6]
-                    const hklComboGenerator = createCombinationGenerator(num_hkls, 6);
+
+
+                 
+                const hklComboGenerator = createCombinationGenerator(num_hkls, K_VALUE);
+
 
                     // 6. The Dynamic Loop
                     for (let chunk = 0; chunk < numChunks; chunk++) {
@@ -2412,22 +2451,72 @@ scales: {
                     legend: { position: 'top' },
                     tooltip: {
                         callbacks: {
+
+
+
+
+
                             title: function(tooltipItems) {
                                 if (!tooltipItems.length) return '';
-                                const tth = tooltipItems[0].parsed.x;
-                                let title = `2θ: ${tth.toFixed(3)}°`;
-                                if (currentHklList && currentHklList.length > 0) {
-                                    let closestPeak = null; let minDiff = Infinity;
+                                
+                                const item = tooltipItems[0];
+                                const tth = item.parsed.x;
+                                const datasetIndex = item.datasetIndex;
+                                const lambda = parseFloat(document.getElementById('wavelength').value) || 1.54056;
+
+                                // 1. Always show the 2-theta of the hovered item
+                                let title = `2θ: ${tth.toFixed(4)}°`;
+
+                                // 2. Always calculate d-spacing from THAT 2-theta
+                                const d_spacing = lambda / (2 * Math.sin(tth * Math.PI / 360));
+                                title += `, d: ${d_spacing.toFixed(5)} Å`;
+
+                                // 3. Add HKL info depending on what is hovered
+                                // --- Logic for CALCULATED (blue) peaks ---
+                                if (datasetIndex === 2 && currentHklList && currentHklList.length > 0) {
+                                    // Find the HKL for this calculated peak
+                                    let closestPeak = null;
+                                    let minDiff = Infinity;
                                     for (const hkl of currentHklList) {
                                         const diff = Math.abs(tth - hkl.tth);
-                                        if (diff < minDiff) { minDiff = diff; closestPeak = hkl; }
+                                        if (diff < minDiff) {
+                                            minDiff = diff;
+                                            closestPeak = hkl;
+                                        }
+                                    }
+                                    // For a calculated peak, it should be a near-perfect match
+                                    if (closestPeak && minDiff < 1e-4) {
+                                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l})`;
+                                    }
+                                
+                                // --- Logic for OBSERVED (red) peaks ---
+                                } else if (datasetIndex === 1 && currentHklList && currentHklList.length > 0) {
+                                    // Find the NEAREST calculated HKL to this observed peak
+                                    let closestPeak = null;
+                                    let minDiff = Infinity;
+                                    for (const hkl of currentHklList) {
+                                        const diff = Math.abs(tth - hkl.tth);
+                                        if (diff < minDiff) {
+                                            minDiff = diff;
+                                            closestPeak = hkl;
+                                        }
                                     }
                                     const tolerance = parseFloat(ui.tthError.value) || 0.05;
                                     if (closestPeak && minDiff < tolerance) {
-                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;                                    }
+                                        // Show the nearest HKL for context
+                                        title += ` (Nearest Calc: ${closestPeak.tth.toFixed(4)}°, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}))`;
+                                    }
                                 }
                                 return title;
                             },
+
+
+
+
+
+
+
+
                             label: function(context) {
                                 const datasetLabel = context.dataset.label || '';
                                 if (datasetLabel === 'Observed Peaks' || datasetLabel === 'Calculated Peaks') return null;
