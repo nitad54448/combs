@@ -604,6 +604,8 @@ const WAVELENGTH_PRESETS = {
         tabPanels: document.querySelectorAll('.tab-content-panel')
     };
     
+    const statusTextElement = document.getElementById('status-text');
+
     // Global variable for space group data ---
     let spaceGroupData = null;
    // Function to load space group JSON data, error if not found ---
@@ -711,6 +713,11 @@ const WAVELENGTH_PRESETS = {
     });
 
     let statusTimeout;
+
+
+
+
+
     const showStatus = (message, type = 'info', duration = 4000) => {
         if (!ui.statusBar) {
             console.warn(`Status bar element (#status-box) not found. Message: "${message}"`);
@@ -739,6 +746,8 @@ const WAVELENGTH_PRESETS = {
     let xrdChart;
     let isIndexing = false;
     
+    let gpuStopSignal = { stop: false };
+
     let lastIndexingStats = ''; // Stores the final trial count and speed
     let cumulativeTrials = 0;
     let indexingStartTime = 0;
@@ -1660,7 +1669,94 @@ const formatWithError = (value, error) => {
     };
 
 
-// 7 nov - It uses RANDOM SAMPLING to prevent the "Out of Memory" crash
+    //8 nov, major modif, chunks
+/**
+ * Creates an efficient generator for C(n, k) combinations.
+ * This function is memory-efficient and yields combinations one by one
+ * without storing them all in memory.
+ *
+ * @param {number} n - The number of items to choose from (e.g., 80 for C(80, 6)).
+ * @param {number} k - The number of items to choose (e.g., 6 for C(80, 6)).
+ * @returns {Generator<Uint32Array, void, void>} A generator that yields a Uint32Array.
+ */
+function* createCombinationGenerator(n, k) {
+    // 1. Initialize the first combination: [0, 1, 2, ..., k-1]
+    // We use Uint32Array because that's what the GPU buffer expects.
+    const combo = new Uint32Array(k);
+    for (let i = 0; i < k; i++) {
+        combo[i] = i;
+    }
+
+    while (true) {
+        // 2. Yield the current combination array.
+        // The calling loop will copy this array's values into the GPU buffer.
+        yield combo;
+
+        // 3. Find the rightmost element (i) that can be incremented.
+        let i = k - 1;
+        
+        // We check i >= 0.
+        // The max value for combo[i] is (n - k + i).
+        // We look for the first element from the right that is *not*
+        // at its maximum value.
+        while (i >= 0 && combo[i] === (n - k + i)) {
+            i--;
+        }
+
+        // 4. If i < 0, all elements are at their max.
+        // e.g., for C(80, 6), this would be [74, 75, 76, 77, 78, 79].
+        // We are done.
+        if (i < 0) {
+            return;
+        }
+
+        // 5. Increment the element we found.
+        combo[i]++;
+
+        // 6. Reset all elements to the right of it.
+        // e.g., if we had [0, 1, 5, 78, 79] and i=2 (at value 5)
+        // combo[i] becomes 6.
+        // The elements to the right (j=3, j=4) become:
+        // combo[3] = combo[2] + 1 = 7
+        // combo[4] = combo[3] + 1 = 8
+        // Resulting in [0, 1, 6, 7, 8]
+        for (let j = i + 1; j < k; j++) {
+            combo[j] = combo[j - 1] + 1;
+        }
+    }
+}
+
+
+
+let lastThrottleTime = 0;
+    /**
+     * Throttles a function call to only execute once every `delay` milliseconds.
+     * @param {function} func The function to throttle.
+     * @param {number} delay The delay in milliseconds.
+     */
+    const throttle = (func, delay) => {
+        return (...args) => {
+            const now = new Date().getTime();
+            if (now - lastThrottleTime < delay) {
+                return;
+            }
+            lastThrottleTime = now;
+            func(...args);
+        };
+    };
+
+    // This creates a throttled version of the status text update.
+    // It will update at most 4 times per second (every 250ms).
+    // It can now see the global 'statusTextElement'
+    const throttledSetStatusText = throttle((message) => {
+        if (statusTextElement) {
+            statusTextElement.textContent = message;
+        }
+    }, 250); // 250ms delay
+
+
+//
+// 8 nov - full search, crazy, on GPU for mono and triclinic
     const startIndexing = async () => { // Make it async
 
     const tthMinVal = parseFloat(ui.tthMinSlider.value);
@@ -1681,6 +1777,8 @@ const formatWithError = (value, error) => {
     const hasWebGPU = ('gpu' in navigator);
     const webgpuSystems = [];
     const workerSystems = [];
+
+gpuStopSignal.stop = false;
 
     systemsToSearch.forEach(system => {
         if ((system === 'triclinic' || system === 'monoclinic') && hasWebGPU) {
@@ -1757,11 +1855,14 @@ const formatWithError = (value, error) => {
         const totalPercent = currentWorkerProgress + gpuProgress;
 
         ui.progressBar.style.width = `${Math.min(100, totalPercent)}%`;
-        if (statusTextElement) statusTextElement.textContent = `GPU (${systemName}): ${Math.round(chunkProgress * 100)}%... ${numFound} candidates`;
+
+ const message = `GPU (${systemName}): ${Math.round(chunkProgress * 100)}%... ${numFound} candidates`;
+        throttledSetStatusText(message);
+ 
     };
 
 
-    // RUN WEB WORKERS (for cubic, tetra, hex, ortho) ---
+    // RUN WEB WORKERS (for cubic, tetra, hex, ortho) , CPU only for this
     if (workerSystems.length > 0) {
         if (!workerURL) {
             showStatus("Error: Indexing engine is not available.", "error");
@@ -1782,7 +1883,12 @@ const formatWithError = (value, error) => {
                     cumulativeTrials += payload;
                     const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
                     const trialsPerSecond = (elapsedTimeSeconds > 0.1) ? cumulativeTrials / elapsedTimeSeconds : 0;
-                    if (statusTextElement) statusTextElement.textContent = `Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                  
+            const message = `Trials: ${cumulativeTrials.toLocaleString()} (${trialsPerSecond.toLocaleString('en-US', { maximumFractionDigits: 0 })}/s)`;
+                    throttledSetStatusText(message);
+                    
+
+
                 } else if (type === 'solution') {
                     solutions.push(payload);
                     pruneSolutions();
@@ -1817,7 +1923,7 @@ const formatWithError = (value, error) => {
         });
     }
 
-    // --- CORRECTED BLOCK 1: WEBGPU for monoclinic (Exhaustive Search) ---
+    // WEBGPU for monoclinic (Exhaustive Search) 
     if (webgpuSystems.includes('monoclinic')) {
         try {
             showStatus('Initializing WebGPU for monoclinic (Exhaustive)...', 'info');
@@ -1835,8 +1941,12 @@ const formatWithError = (value, error) => {
             
             const qObsArray = new Float32Array(q_obs);
             
-            // Use the 80-HKL basis set
-            const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, 80);
+            // Use the 100-HKL basis set
+            const hkl_basis_raw = get_hkl_search_list('monoclinic').slice(0, 100);
+
+
+      //      console.table(hkl_basis_raw);
+
             const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
             hkl_basis_raw.forEach((hkl, i) => {
                 hklBasisArray.set(hkl, i * 4);
@@ -1852,7 +1962,7 @@ const formatWithError = (value, error) => {
             const peakCombos = new Uint32Array(peak_combos_raw);
 
             // Get EXHAUSTIVE 4-HKL combos
-            const num_hkls = hkl_basis_raw.length; // This is 80
+            const num_hkls = hkl_basis_raw.length; // This was 80
             const hkl_combos_raw = [];
             // Exhaustive search: C(80, 4) = 1,581,580 combinations
             for (let n1 = 0; n1 < num_hkls - 3; n1++) {
@@ -1879,7 +1989,7 @@ const formatWithError = (value, error) => {
             const progressFraction = 1.0 / webgpuSystems.length; 
             const potentialCells = await engine.runMonoclinicSolver(
                 qObsArray, hklBasisArray, peakCombos, hklCombos,
-                gpuProgressCallback('monoclinic', progressFraction)
+                gpuProgressCallback('monoclinic', progressFraction),gpuStopSignal
             );
             
             const endTime = performance.now();
@@ -1923,105 +2033,141 @@ const formatWithError = (value, error) => {
         }
     } 
 
-    //  WEBGPU for triclinic (Random Sample) ---
-    if (webgpuSystems.includes('triclinic')) {
-        try {
-            showStatus('Initializing WebGPU for triclinic (Random Sample)...', 'info');
-            
-            const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
-            const N_FOR_M20 = Math.min(20, filteredPeaks.length);
-            const min_m20 = 2.0; 
-            const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
-            const q_max = 1 / (d_min * d_min);
 
-            const engine = new WebGPUEngine();
-            await engine.init();
-            await engine.loadShader('triclinic_solver.wgsl');
-            engine.createPipeline('main');
-            
-            const qObsArray = new Float32Array(q_obs);
-            
-            // Use the 100-HKL basis set
-            const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 100);
-            const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
-            hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
-            // Get 6-peak combos
-            const max_p = Math.min(10, q_obs.length);
-            const peak_combos_raw = [];
-            for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
-            for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
-            for (let m=l+1; m<max_p-1; m++) for (let n=m+1; n<max_p; n++) {
-                peak_combos_raw.push(i,j,k,l,m,n);
-            }
-            const peakCombos = new Uint32Array(peak_combos_raw);
 
-            // Get RANDOM 6-HKL combos
-            const num_hkls = hkl_basis_raw.length; // This is 100
-            const hkl_combos_raw = [];
-            const HKL_COMBOS_LIMIT = 10000000; // 10M as requested
-            for (let t = 0; t < HKL_COMBOS_LIMIT; t++) {
-                let s = new Set();
-                while (s.size < 6) { // *** CRITICAL FIX: Was 4, now 6 ***
-                    s.add(Math.floor(Math.random() * num_hkls));
-                }
-                const arr = Array.from(s).sort((a,b)=>a-b);
-                hkl_combos_raw.push(...arr);
-            }
-            const hklCombos = new Uint32Array(hkl_combos_raw);
 
-            if (peakCombos.length === 0 || hklCombos.length === 0) {
-                throw new Error("Not enough peaks or HKLs to run triclinic search.");
-            }
-            
-            const numPeakCombos = peakCombos.length / 6;
-            const numHklCombos = hklCombos.length / 6;
-            showStatus(`Running triclinic GPU search (${numPeakCombos.toLocaleString()} peaks x ${numHklCombos.toLocaleString()} HKLs)...`, 'info');
-            
-            const startTime = performance.now();
-            
-            const progressFraction = 1.0 / webgpuSystems.length; 
-            const potentialCells = await engine.runTriclinicSolver(
-                qObsArray, hklBasisArray, peakCombos, hklCombos,
-                gpuProgressCallback('triclinic', progressFraction)
-            );
-            
-            const endTime = performance.now();
-            const numTrials = numPeakCombos * numHklCombos;
-            cumulativeTrials += numTrials;
-            const trialsPerSec = numTrials / ((endTime - startTime) / 1000);
-            if (statusTextElement) statusTextElement.textContent = `GPU: ${trialsPerSec.toLocaleString('en-US', { maximumFractionDigits: 0 })} trials/s`;
-            
-            showStatus(`GPU found ${potentialCells.length} candidates. Refining on CPU...`, 'info');
-            
-            // --- PART 3: Refine GPU results on CPU ---
-            potentialCells.forEach((cell, i) => {
-                const cpuRefineState = {
-                    q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
-                    N_FOR_M20, min_m20, q_max, d_min,
-                    foundSolutions: solutions, 
-                    foundSolutionMap: foundSolutionMap 
-                };
-                refineAndTestSolution( 
-                    cell, baseParams, cpuRefineState,
-                    (msg) => { 
-                        if (msg.type === 'solution') {
-                            solutions.push(msg.payload);
-                            pruneSolutions();
-                            if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
-                            sortSolutions();
-                            displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
-                            updateSolutionsTable();
-                        }
+
+    //  WEBGPU for triclinic, chunks...
+
+if (webgpuSystems.includes('triclinic')) {
+                try {
+                    showStatus('Initializing WebGPU for triclinic (Exhaustive)...', 'info');
+                    
+                    const { q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q } = getSortedPeaks(filteredPeaks, baseParams.wavelength);
+                    const N_FOR_M20 = Math.min(20, filteredPeaks.length);
+                    const min_m20 = 2.0; 
+                    const d_min = baseParams.wavelength / (2 * Math.sin(Math.max(...filteredPeaks.map(p => p.tth)) * Math.PI / 360));
+                    const q_max = 1 / (d_min * d_min);
+
+                    const engine = new WebGPUEngine();
+                    await engine.init(); // This requests the higher limits
+                    await engine.loadShader('triclinic_solver.wgsl');
+                    engine.createPipeline('main');
+                    
+                    const qObsArray = new Float32Array(q_obs);
+                    
+                    // Use the 80-HKL basis set
+                    const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 80);
+                    // console.table(hkl_basis_raw);
+
+                    const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
+                    hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
+
+                    // Get 6-peak combos
+                    const max_p = Math.min(10, q_obs.length);
+                    const peak_combos_raw = [];
+                    for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
+                    for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
+                    for (let m=l+1; m<max_p-1; m++) for (let n=m+1; n<max_p; n++) {
+                        peak_combos_raw.push(i,j,k,l,m,n);
                     }
-                ); 
-            });
-            
-        } catch (err) {
-            console.error("WebGPU Error (Triclinic):", err);
-            showStatus(`WebGPU Error: ${err.message}`, 'error');
-        }
-    }
+                    const peakCombos = new Uint32Array(peak_combos_raw);
+
+                                       
+                    const num_hkls = hkl_basis_raw.length; // 80
+                     
+                    // 1. Get User's True Limit
+                    const userMaxBuffer = engine.device.limits.maxStorageBufferBindingSize;
+                    
+                    // 2. Calculate combos per chunk (24 bytes per combo)
+                    //  use 90% of the buffer to be safe.
+                    const combosPerChunk = Math.floor((userMaxBuffer * 0.90) / 24); 
+
+                    // 3. Define Total Task
+                    const TOTAL_EXHAUSTIVE_COMBOS = 302342850; // C(80, 6)
+
+                    // 4. Calculate Dynamic Number of Chunks
+                    const numChunks = Math.ceil(TOTAL_EXHAUSTIVE_COMBOS / combosPerChunk);
+
+                    console.log(`User max buffer: ${userMaxBuffer} bytes`);
+                    console.log(`Calculated combos per chunk: ${combosPerChunk.toLocaleString()}`);
+                    console.log(`Total exhaustive combos: ${TOTAL_EXHAUSTIVE_COMBOS.toLocaleString()}`);
+                    console.log(`Dynamically calculated chunks: ${numChunks}`);
+                    
+
+                    // C(80, 6) arrays of [n1, n2, n3, n4, n5, n6]
+                    const hklComboGenerator = createCombinationGenerator(num_hkls, 6);
+
+                    // 6. The Dynamic Loop
+                    for (let chunk = 0; chunk < numChunks; chunk++) {
+                        if (!isIndexing) break; // Allow user to stop
+
+                        const combosThisChunk = (chunk === numChunks - 1)
+                            ? (TOTAL_EXHAUSTIVE_COMBOS % combosPerChunk || combosPerChunk)
+                            : combosPerChunk;
+
+                        const totalIndices = combosThisChunk * 6;
+                        const hklCombos = new Uint32Array(totalIndices);
+                        
+                        let offset = 0;
+                        for (let i = 0; i < combosThisChunk; i++) {
+                            const arr = hklComboGenerator.next().value;
+                            if (!arr) break;
+                            hklCombos.set(arr, offset);
+                            offset += 6;
+                        }
+
+                        // 7. Run the solver just for this chunk
+                        const progressCallback = (chunkProgress, numFound) => {
+                            const totalProgress = ((chunk + chunkProgress) / numChunks) * 100;
+                            // This assumes monoclinic ran first and took 50%
+                            const scaledProgress = 50 + (totalProgress * 0.5); 
+                            ui.progressBar.style.width = `${scaledProgress}%`;
+
+                            
+                            const message = `GPU (Triclinic): ${totalProgress.toFixed(1)}%... ${numFound} candidates`;
+                            throttledSetStatusText(message);
+                       
+                       
+                        };
+                        
+                        const potentialCells = await engine.runTriclinicSolver(
+                            qObsArray, hklBasisArray, peakCombos, hklCombos,
+                            progressCallback, gpuStopSignal
+                        );
+                        
+                        // 8. Refine results from this chunk
+                        potentialCells.forEach((cell, i) => {
+                            const cpuRefineState = {
+                                q_obs, original_indices, tth_obs_rad, peaks_sorted_by_q,
+                                N_FOR_M20, min_m20, q_max, d_min,
+                                foundSolutions: solutions, 
+                                foundSolutionMap: foundSolutionMap 
+                            };
+                            refineAndTestSolution( 
+                                cell, baseParams, cpuRefineState,
+                                (msg) => { 
+                                    if (msg.type === 'solution') {
+                                        solutions.push(msg.payload);
+                                        pruneSolutions();
+                                        if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
+                                        sortSolutions();
+                                        displayedSolutions = solutions.filter(sol => systemsToSearch.includes(sol.system));
+                                        updateSolutionsTable();
+                                    }
+                                }
+                            ); 
+                        });
+                    }
+                    
+                } catch (err) {
+                    console.error("WebGPU Error (Triclinic):", err);
+                    showStatus(`WebGPU Error: ${err.message}`, 'error');
+                }
+            }
+
+
     
     // --- PART 4: FINALIZE ---
     if (activeWorkers.length === 0 && webgpuSystems.length === 0) {
@@ -2108,7 +2254,8 @@ const formatWithError = (value, error) => {
             // Kill all running workers
             activeWorkers.forEach(w => w.terminate()); 
             activeWorkers = [];
-            
+            gpuStopSignal.stop = true;
+
             // Calculate and set stats on STOP ---
             const statusTextElement = document.getElementById('status-text');
             const elapsedTimeSeconds = (performance.now() - indexingStartTime) / 1000;
@@ -2220,7 +2367,7 @@ scales: {
     x: { 
         type: 'linear', 
         title: { display: true, text: '2-theta (degrees)' },
-        offset: false, // <-- THIS IS THE MISSING FIX
+        offset: false,
         ticks: {
             includeBounds: false, 
             callback: function(value, index, ticks) {
@@ -2748,7 +2895,7 @@ const generatePDFReport = async () => {
               	 	   groupsByViolation[v].push({
               	 	 	   number: sg.number,
               	 	 	   standardSymbol: sg.standardSymbol, // Store standard symbol for reference if needed
-              	 	 	   settings: [{ symbol: sg.symbol, violations: sg.violatedReflections }] // <-- THE FIX IS HERE
+              	 	 	   settings: [{ symbol: sg.symbol, violations: sg.violatedReflections }] 
               	 	   });
               	   }
             	  });
@@ -2937,4 +3084,4 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
 </script>
 <div id="app-footer">Brutus, 08 nov 2025</div>
 </body>
-S</html>
+</html>

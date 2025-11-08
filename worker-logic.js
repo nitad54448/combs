@@ -2,7 +2,7 @@
 // Please replace your entire file with this.
 
 // --- UTILITY & CRYSTALLOGRAPHY HELPER FUNCTIONS ---
-// (All functions from your file, like metricFromCell, getSymmetry, 
+// (All functions from your file, like metricFromCell, getSymmetry,
 //  luDecomposition, generateHKL_for_analysis, etc., remain unchanged)
 // ... (pasting all your helper functions here) ...
 const RAD = Math.PI / 180.0;
@@ -98,13 +98,13 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
 
     const reflections = [];
     const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
-    const q_max_limit = (1 / (d_min * d_min)) * 1.05; 
+    const q_max_limit = (1 / (d_min * d_min)) * 1.05;
     const h_max = Math.ceil(a / d_min) + 1;
     const k_max = Math.ceil(b / d_min) + 1;
     const l_max = Math.ceil(c / d_min) + 1;
 
     const processReflection = (h, k, l, inv_d_sq) => {
-        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return; 
+        if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) return;
         const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
         if (sinThetaSq <= 1) {
             const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * DEG;
@@ -114,28 +114,28 @@ function generateHKL_for_analysis(params, lambda, maxTth) {
 
     switch (system) {
         case 'cubic':
-            for (let h = 0; h <= h_max; h++) { const h_term = (h * h) / (a * a); if (h_term > q_max_limit) break; 
-                for (let k = 0; k <= h; k++) { const hk_term = h_term + (k * k) / (a * a); if (hk_term > q_max_limit) break; 
+            for (let h = 0; h <= h_max; h++) { const h_term = (h * h) / (a * a); if (h_term > q_max_limit) break;
+                for (let k = 0; k <= h; k++) { const hk_term = h_term + (k * k) / (a * a); if (hk_term > q_max_limit) break;
                     for (let l = 0; l <= k; l++) { if (h === 0 && k === 0 && l === 0) continue; const inv_d_sq = hk_term + (l * l) / (a * a); processReflection(h, k, l, inv_d_sq); }
                 }
             } break;
         case 'tetragonal':
         case 'hexagonal':
-             for (let l = 0; l <= l_max; l++) { const l_term = (l * l) / (c * c); if (l_term > q_max_limit) break; 
-                for (let h = 0; h <= h_max; h++) { let h_term_base = (system === 'tetragonal') ? (h * h) / (a * a) : (4 / 3) * (h * h) / (a * a); if (l_term + h_term_base > q_max_limit && h > 0) break; 
+             for (let l = 0; l <= l_max; l++) { const l_term = (l * l) / (c * c); if (l_term > q_max_limit) break;
+                for (let h = 0; h <= h_max; h++) { let h_term_base = (system === 'tetragonal') ? (h * h) / (a * a) : (4 / 3) * (h * h) / (a * a); if (l_term + h_term_base > q_max_limit && h > 0) break;
                     for (let k = 0; k <= h; k++) { if (h === 0 && k === 0 && l === 0) continue; let inv_d_sq = (system === 'tetragonal') ? l_term + (h * h + k * k) / (a * a) : l_term + (4 / 3) * (h * h + h * k + k * k) / (a * a); processReflection(h, k, l, inv_d_sq); }
                 }
             } break;
         case 'orthorhombic':
-            for (let h = 0; h <= h_max; h++) { const h_term = (h * h) / (a * a); if (h_term > q_max_limit) break; 
-                for (let k = 0; k <= k_max; k++) { const hk_term = h_term + (k * k) / (b * b); if (hk_term > q_max_limit) break; 
+            for (let h = 0; h <= h_max; h++) { const h_term = (h * h) / (a * a); if (h_term > q_max_limit) break;
+                for (let k = 0; k <= k_max; k++) { const hk_term = h_term + (k * k) / (b * b); if (hk_term > q_max_limit) break;
                     for (let l = 0; l <= l_max; l++) { if (h === 0 && k === 0 && l === 0) continue; const inv_d_sq = hk_term + (l * l) / (c * c); processReflection(h, k, l, inv_d_sq); }
                 }
             } break;
         case 'monoclinic':
             const sinBeta = Math.sin(beta * RAD), cosBeta = Math.cos(beta * RAD), sinBetaSq = sinBeta * sinBeta;
             if (sinBetaSq < 1e-6) return [];
-            const a_star_sq = 1 / (a * a * sinBetaSq), b_star_sq = 1 / (b * b), c_star_sq = 1 / (c * c * sinBetaSq), ac_star_term = 2 * cosBeta / (a * c * sinBetaSq); 
+            const a_star_sq = 1 / (a * a * sinBetaSq), b_star_sq = 1 / (b * b), c_star_sq = 1 / (c * c * sinBetaSq), ac_star_term = 2 * cosBeta / (a * c * sinBetaSq);
             for (let h = -h_max; h <= h_max; h++) {
                 const h_term = h * h * a_star_sq, h_l_coeff = h * ac_star_term;
                 const l_vertex_h_only = (c_star_sq !== 0) ? h_l_coeff / (2 * c_star_sq) : 0;
@@ -263,7 +263,7 @@ const extractCellFromFit = (params, system) => {
                 cell = { ...cell, ...triclinicCell };
                 break;
         }
-    } catch (e) { return null; } 
+    } catch (e) { return null; }
     if (isNaN(cell.a) || isNaN(cell.b) || isNaN(cell.c) || isNaN(cell.alpha) || isNaN(cell.beta) || isNaN(cell.gamma)) return null;
     return cell;
 };
@@ -437,7 +437,7 @@ const propagateErrors = (system, fitResult, cell) => {
 const hkl_search_list_cache = {};
 const get_hkl_search_list = (system) => {
     if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
-    const hkls = []; const max_h = 6, max_mono = 3, max_tri = 2;
+    const hkls = []; const max_h = 6, max_mono = 3, max_tri = 3;
     if (system === 'monoclinic') {
         for (let h = -max_mono; h <= max_mono; h++) for (let k = 0; k <= max_mono; k++) for (let l = -max_mono; l <= max_mono; l++) {
             if (h === 0 && k === 0 && l === 0) continue; if (k === 0) { if (h < 0) continue; if (h === 0 && l <= 0) continue; } hkls.push([h, k, l]);
@@ -474,18 +474,18 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     if (initialParams.b !== undefined) params_to_check.push(initialParams.b);
     if (initialParams.c !== undefined) params_to_check.push(initialParams.c);
     if (params_to_check.some(p => (isNaN(p) || p < min_lp || p > max_lp))) { return; }
-    let candidate_cell = { ...initialParams }; 
+    let candidate_cell = { ...initialParams };
     const { system } = initialParams;
     const local_get_q_tolerance = (idx) => get_q_tolerance(idx, tth_obs_rad, wavelength, tth_error);
-    let initial_indexed_pairs = []; let initial_peak_indices = []; 
-    const hkl_search_list = get_hkl_search_list(system); 
+    let initial_indexed_pairs = []; let initial_peak_indices = [];
+    const hkl_search_list = get_hkl_search_list(system);
     for (let i = 0; i < N_FOR_M20; i++) {
         const q_o = q_obs[i], tolerance = local_get_q_tolerance(original_indices[i]);
         let best_match = null, min_diff = Infinity;
-        for (const hkl of hkl_search_list) { 
+        for (const hkl of hkl_search_list) {
             const q_calc = getQcalc(hkl, candidate_cell); const diff = Math.abs(q_calc - q_o);
             if (diff < min_diff) { min_diff = diff; best_match = hkl; }
-            if (system !== 'monoclinic' && system !== 'triclinic' && q_calc > q_o + tolerance * 2) break; 
+            if (system !== 'monoclinic' && system !== 'triclinic' && q_calc > q_o + tolerance * 2) break;
         }
         if (best_match && min_diff < tolerance) {
             initial_indexed_pairs.push({ q_obs: q_o, hkl: best_match });
@@ -520,8 +520,8 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     const min_lp_check = 2.0, max_lp_check = 50.0;
 // Use ?? to handle all systems correctly
 const axes_to_check = [
-    initial_cell.a, 
-    initial_cell.b ?? initial_cell.a, 
+    initial_cell.a,
+    initial_cell.b ?? initial_cell.a,
     initial_cell.c ?? initial_cell.a
 ];
 
@@ -550,7 +550,7 @@ if (axes_to_check.some(p => (isNaN(p) || p < min_lp_check || p > max_lp_check)))
         const all_possible_reflections = generateHKL_for_worker(initial_cell, q_max, d_min, wavelength);
         
         const final_indexed_pairs = []; const final_peak_indices_for_ls = []; const used_reflections = new Set();
-        for (let i = 0; i < N_FOR_M20; i++) { 
+        for (let i = 0; i < N_FOR_M20; i++) {
             const q_o = q_obs[i]; const tolerance = local_get_q_tolerance(original_indices[i]);
             let best_match_idx = -1, min_diff = Infinity;
             if (all_possible_reflections.length > 0) {
@@ -601,7 +601,7 @@ if (axes_to_check.some(p => (isNaN(p) || p < min_lp_check || p > max_lp_check)))
                         refined_cell.m20 = final_m20; refined_cell.fN_20 = final_fN_20; refined_cell.n_20 = n_20_refined;
                         refined_cell.m_all = final_m_all; refined_cell.fN_all = final_fN_all; refined_cell.n_all = n_all_refined;
                         refined_cell.errors = propagateErrors(system, fitResult_with_zero_final, refined_cell);
-                        final_solution_to_post = refined_cell; 
+                        final_solution_to_post = refined_cell;
                     }
                 }
             }
@@ -619,15 +619,29 @@ if (axes_to_check.some(p => (isNaN(p) || p < min_lp_check || p > max_lp_check)))
 // --- TOP-LEVEL INDEXING FUNCTIONS (now accept state) ---
 function indexCubic(data, state, postMessage_func) {
     const { peaks } = data; const { q_obs, refineAndTestSolution } = state;
-    const h_max = 8; const totalIterations = Math.min(peaks.length, 12); if (totalIterations === 0) return;
+    const h_max = 8;
+    const peak_depth = Math.min(peaks.length, 12);
     const hkls = []; for (let h = 1; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
+    
+    // *** NEW: Proper Progress Calculation ***
+    const totalTrialsToRun = peak_depth * hkls.length;
+    let totalTrialsCompleted = 0;
+    // *** END NEW ***
+    
     let trialsBatch = 0; const batchSize = 1000;
-    for (let i = 0; i < totalIterations; i++) { 
+    for (let i = 0; i < peak_depth; i++) {
         for (const hkl of hkls) {
             refineAndTestSolution({ a: Math.sqrt((hkl[0]*hkl[0] + hkl[1]*hkl[1] + hkl[2]*hkl[2]) / q_obs[i]), system: 'cubic' });
-            trialsBatch++; if (trialsBatch >= batchSize) { postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); trialsBatch = 0; }
+            trialsBatch++; 
+            if (trialsBatch >= batchSize) { 
+                postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                totalTrialsCompleted += trialsBatch;
+                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80; // 80% reserved
+                postMessage_func({ type: 'progress', payload: progress });
+                trialsBatch = 0; 
+            }
         }
-        const progress = ((i + 1) / totalIterations) * 80; postMessage_func({ type: 'progress', payload: progress });
+        // *** REMOVED old progress update ***
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
@@ -635,38 +649,53 @@ function indexCubic(data, state, postMessage_func) {
 function indexTetragonalOrHexagonal(data, state, postMessage_func, system) {
     const { peaks } = data; const { q_obs, refineAndTestSolution } = state;
     const max_hkl = 5, i_depth = Math.min(12, peaks.length), j_depth = Math.min(12, peaks.length);
-    const totalIterations = i_depth; if (totalIterations === 0) return;
     const hkls = []; for (let h = 0; h <= max_hkl; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= max_hkl; l++) { if (!h && !k && !l) continue; hkls.push([h,k,l]); }
+
+    // *** NEW: Proper Progress Calculation ***
+    let totalPeakCombos = 0;
+    for (let i = 0; i < i_depth; i++) {
+        for (let j = i + 1; j < j_depth; j++) {
+            totalPeakCombos++;
+        }
+    }
+    const totalTrialsToRun = totalPeakCombos * hkls.length * hkls.length;
+    let totalTrialsCompleted = 0;
+    // *** END NEW ***
+
     let trialsBatch = 0; const batchSize = 5000;
-    for (let i = 0; i < totalIterations; i++) {
+    for (let i = 0; i < i_depth; i++) {
         for (let j = i + 1; j < j_depth; j++) {
             for (const hkl1 of hkls) {
                 const l1 = hkl1[2]; const S1 = system === 'tetragonal' ? hkl1[0] * hkl1[0] + hkl1[1] * hkl1[1] : hkl1[0] * hkl1[0] + hkl1[0] * hkl1[1] + hkl1[1] * hkl1[1];
                 for (const hkl2 of hkls) {
                     const l2 = hkl2[2]; const S2 = system === 'tetragonal' ? hkl2[0] * hkl2[0] + hkl2[1] * hkl2[1] : hkl2[0] * hkl2[0] + hkl2[0] * hkl2[1] + hkl2[1] * hkl2[1];
-                    trialsBatch++; if (trialsBatch >= batchSize) { postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); trialsBatch = 0; }
+                    
+                    trialsBatch++; 
+                    if (trialsBatch >= batchSize) { 
+                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                        totalTrialsCompleted += trialsBatch;
+                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
+                        postMessage_func({ type: 'progress', payload: progress });
+                        trialsBatch = 0; 
+                    }
+
                     const det = S1 * l2 * l2 - S2 * l1 * l1;
                     if (Math.abs(det) < 1e-6) continue;
                     const a_term_inv = (q_obs[i] * l2 * l2 - q_obs[j] * l1 * l1) / det, c_term_inv = (q_obs[j] * S1 - q_obs[i] * S2) / det;
                    
-if (a_term_inv > 0 && c_term_inv > 0) {
-    const a = system === 'tetragonal' ? 1 / Math.sqrt(a_term_inv) : Math.sqrt(4 / (3 * a_term_inv));
-    const c = 1 / Math.sqrt(c_term_inv);
-
-    
-    const min_lp = 2.0, max_lp = 50.0;
-    if (a < min_lp || a > max_lp || c < min_lp || c > max_lp || (a != a) || (c != c)) {
-        continue; // Skip these junk values
-    }
-    
-
-    refineAndTestSolution({ a: a, c: c, system });
-}
-
+                    if (a_term_inv > 0 && c_term_inv > 0) {
+                        const a = system === 'tetragonal' ? 1 / Math.sqrt(a_term_inv) : Math.sqrt(4 / (3 * a_term_inv));
+                        const c = 1 / Math.sqrt(c_term_inv);
+                        const min_lp = 2.0, max_lp = 50.0;
+                        if (a < min_lp || a > max_lp || c < min_lp || c > max_lp || (a != a) || (c != c)) {
+                            continue;
+                        }
+                        refineAndTestSolution({ a: a, c: c, system });
+                    }
                 }
             }
         }
-        const progress = ((i + 1) / totalIterations) * 80; postMessage_func({ type: 'progress', payload: progress });
+        // *** REMOVED old progress update ***
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
@@ -674,23 +703,43 @@ if (a_term_inv > 0 && c_term_inv > 0) {
 function indexOrthorhombic(data, state, postMessage_func) {
     const { q_obs, refineAndTestSolution } = state;
     const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 80);
-    const totalIterations = max_p - 2; if (totalIterations <= 0) return;
+    
+    // *** NEW: Proper Progress Calculation ***
+    const n_p = max_p;
+    const n_h = basis_hkls.length;
+    const totalPeakCombos = (n_p * (n_p - 1) * (n_p - 2)) / 6; // C(n_p, 3)
+    const totalHklCombos = (n_h * (n_h - 1) * (n_h - 2)) / 6; // C(n_h, 3)
+    const totalTrialsToRun = totalPeakCombos * totalHklCombos;
+    let totalTrialsCompleted = 0;
+    // *** END NEW ***
+    
     let trialsBatch = 0; const batchSize = 20000;
-    for (let i = 0; i < totalIterations; i++) { 
+    for (let i = 0; i < max_p - 2; i++) {
         for (let j = i + 1; j < max_p - 1; j++) {
             for (let k = j + 1; k < max_p; k++) {
-                for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
-                    trialsBatch++; if (trialsBatch >= batchSize) { postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); trialsBatch = 0; }
-                    const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2]);
-                    const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
-                    const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-                    if (fit && fit.solution && fit.solution.every(s => s > 0)) {
-                        refineAndTestSolution({ a: 1 / Math.sqrt(fit.solution[0]), b: 1 / Math.sqrt(fit.solution[1]), c: 1 / Math.sqrt(fit.solution[2]), system: 'orthorhombic' });
+                const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
+                for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) {
+                    for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) {
+                        for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
+                            trialsBatch++; 
+                            if (trialsBatch >= batchSize) { 
+                                postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                                totalTrialsCompleted += trialsBatch;
+                                const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
+                                postMessage_func({ type: 'progress', payload: progress });
+                                trialsBatch = 0; 
+                            }
+                            const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2]);
+                            const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
+                            if (fit && fit.solution && fit.solution.every(s => s > 0)) {
+                                refineAndTestSolution({ a: 1 / Math.sqrt(fit.solution[0]), b: 1 / Math.sqrt(fit.solution[1]), c: 1 / Math.sqrt(fit.solution[2]), system: 'orthorhombic' });
+                            }
+                        }
                     }
                 }
             }
         }
-        const progress = ((i + 1) / totalIterations) * 80; postMessage_func({ type: 'progress', payload: progress });
+        // *** REMOVED old progress update ***
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
@@ -698,23 +747,45 @@ function indexOrthorhombic(data, state, postMessage_func) {
 function indexMonoclinic(data, state, postMessage_func) {
     const { q_obs, refineAndTestSolution } = state;
     const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('monoclinic').slice(0, 100);
-    const totalIterations = max_p - 3; if (totalIterations <= 0) return;
+
+    // *** NEW: Proper Progress Calculation ***
+    const n_p = max_p;
+    const n_h = basis_hkls.length;
+    const totalPeakCombos = (n_p * (n_p - 1) * (n_p - 2) * (n_p - 3)) / 24; // C(n_p, 4)
+    const totalHklCombos = (n_h * (n_h - 1) * (n_h - 2) * (n_h - 3)) / 24; // C(n_h, 4)
+    const totalTrialsToRun = totalPeakCombos * totalHklCombos;
+    let totalTrialsCompleted = 0;
+    // *** END NEW ***
+    
     let trialsBatch = 0; const batchSize = 50000;
-    for (let i = 0; i < totalIterations; i++) {
+    for (let i = 0; i < max_p - 3; i++) {
         for (let j = i + 1; j < max_p - 2; j++) {
             for (let k = j + 1; k < max_p - 1; k++) {
                 for (let l = k + 1; l < max_p; l++) {
                     const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
-                    for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
-                        trialsBatch++; if (trialsBatch >= batchSize) { postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); trialsBatch = 0; }
-                        const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]].map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
-                        const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-                        if (fit && fit.solution) { const trialCell = extractCellFromFit(fit.solution, 'monoclinic'); if (trialCell) refineAndTestSolution(trialCell); }
+                    for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) {
+                        for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) {
+                            for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) {
+                                for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
+                                    trialsBatch++; 
+                                    if (trialsBatch >= batchSize) { 
+                                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                                        totalTrialsCompleted += trialsBatch;
+                                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
+                                        postMessage_func({ type: 'progress', payload: progress });
+                                        trialsBatch = 0; 
+                                    }
+                                    const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]].map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
+                                    const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
+                                    if (fit && fit.solution) { const trialCell = extractCellFromFit(fit.solution, 'monoclinic'); if (trialCell) refineAndTestSolution(trialCell); }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        const progress = ((i + 1) / totalIterations) * 80; postMessage_func({ type: 'progress', payload: progress });
+        // *** REMOVED old progress update ***
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
@@ -722,31 +793,55 @@ function indexMonoclinic(data, state, postMessage_func) {
 function indexTriclinic(data, state, postMessage_func) {
     const { q_obs, refineAndTestSolution } = state;
     const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('triclinic').slice(0, 160);
-    const totalIterations = max_p - 5; if (totalIterations <= 0) return;
+    
+    // *** NEW: Proper Progress Calculation ***
+    const n_p = max_p;
+    const n_h = basis_hkls.length;
+    const totalPeakCombos = (n_p * (n_p - 1) * (n_p - 2) * (n_p - 3) * (n_p - 4) * (n_p - 5)) / 720; // C(n_p, 6)
+    const totalHklCombos = (n_h * (n_h - 1) * (n_h - 2) * (n_h - 3) * (n_h - 4) * (n_h - 5)) / 720; // C(n_h, 6)
+    const totalTrialsToRun = totalPeakCombos * totalHklCombos;
+    let totalTrialsCompleted = 0;
+    // *** END NEW ***
+    
     let trialsBatch = 0; const batchSize = 50000;
-    for (let i = 0; i < totalIterations; i++) {
+    for (let i = 0; i < max_p - 5; i++) {
         for (let j = i + 1; j < max_p - 4; j++) {
             for (let k = j + 1; k < max_p - 3; k++) {
                 for (let l = k + 1; l < max_p - 2; l++) {
                     for (let m = l + 1; m < max_p - 1; m++) {
                         for (let n = m + 1; n < max_p; n++) {
                             const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k], q_obs[l], q_obs[m], q_obs[n]];
-                            for (let n1=0; n1<basis_hkls.length-5; n1++) for (let n2=n1+1; n2<basis_hkls.length-4; n2++)
-                            for (let n3=n2+1; n3<basis_hkls.length-3; n3++) for (let n4=n3+1; n4<basis_hkls.length-2; n4++)
-                            for (let n5=n4+1; n5<basis_hkls.length-1; n5++) for (let n6=n5+1; n6<basis_hkls.length; n6++) {
-                                trialsBatch++; if (trialsBatch >= batchSize) { postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); trialsBatch = 0; }
-                                const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4], basis_hkls[n5], basis_hkls[n6]].map(hkl => 
-                                    [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[1]*hkl[2], hkl[0]*hkl[2], hkl[0]*hkl[1]]
-                                );
-                                const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-                                if (fit && fit.solution) { const trialCell = extractCellFromFit(fit.solution, 'triclinic'); if (trialCell) refineAndTestSolution(trialCell); }
+                            for (let n1=0; n1<basis_hkls.length-5; n1++) {
+                                for (let n2=n1+1; n2<basis_hkls.length-4; n2++) {
+                                    for (let n3=n2+1; n3<basis_hkls.length-3; n3++) {
+                                        for (let n4=n3+1; n4<basis_hkls.length-2; n4++) {
+                                            for (let n5=n4+1; n5<basis_hkls.length-1; n5++) {
+                                                for (let n6=n5+1; n6<basis_hkls.length; n6++) {
+                                                    trialsBatch++; 
+                                                    if (trialsBatch >= batchSize) { 
+                                                        postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch }); 
+                                                        totalTrialsCompleted += trialsBatch;
+                                                        const progress = (totalTrialsCompleted / totalTrialsToRun) * 80;
+                                                        postMessage_func({ type: 'progress', payload: progress });
+                                                        trialsBatch = 0; 
+                                                    }
+                                                    const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4], basis_hkls[n5], basis_hkls[n6]].map(hkl => 
+                                                        [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[1]*hkl[2], hkl[0]*hkl[2], hkl[0]*hkl[1]]
+                                                    );
+                                                    const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
+                                                    if (fit && fit.solution) { const trialCell = extractCellFromFit(fit.solution, 'triclinic'); if (trialCell) refineAndTestSolution(trialCell); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        const progress = ((i + 1) / totalIterations) * 80; postMessage_func({ type: 'progress', payload: progress });
+        // *** REMOVED old progress update ***
     }
     if (trialsBatch > 0) postMessage_func({ type: 'trials_completed_batch', payload: trialsBatch });
 }
@@ -878,7 +973,7 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             }
             if (first_four_indexed.length < min_peaks_needed) return;
             let closest_pair = {i: -1, j: -1, diff: Infinity};
-            for(let i=0; i < first_four_indexed.length; i++){
+            for(let i=0; iV < first_four_indexed.length; i++){
                 for(let j=i+1; j<first_four_indexed.length; j++){
                     const diff = Math.abs(first_four_indexed[i].q_obs - first_four_indexed[j].q_obs);
                     if(diff < closest_pair.diff){ closest_pair = {i, j, diff}; }
@@ -1028,8 +1123,8 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
 
 // --- SPACE GROUP ANALYSIS FUNCTIONS ---
 function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, wavelength, tthError, tthMax) {
-    const MAX_VIOLATIONS = 2; 
-    const fallbackResult = { 
+    const MAX_VIOLATIONS = 2;
+    const fallbackResult = {
         centering: 'Unknown',
         rankedSpaceGroups: [],
         detectedExtinctions: [],
@@ -1040,7 +1135,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     const all_calc_hkls = generateHKL_for_analysis(solution, wavelength, tthMax);
 
     if (all_calc_hkls.length === 0) {
-    fallbackResult.hklList = []; 
+    fallbackResult.hklList = [];
     return fallbackResult;
 }
     
@@ -1053,7 +1148,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
     const unique_indexed_hkls = Array.from(new Map(indexed_hkls.map(r => [`${r.h},${r.k},${r.l}`, r])).values());
     const unambiguous_hkls = unique_indexed_hkls.filter(refl => {
         const nearbyCount = all_calc_hkls.filter(calc => { if (calc.h === refl.h && calc.k === refl.k && calc.l === refl.l) return false; return Math.abs(calc.tth - refl.calc_tth) < tthError; }).length;
-        return nearbyCount === 0; 
+        return nearbyCount === 0;
     });
     const hkls_for_analysis = unambiguous_hkls.length > 0 ? unambiguous_hkls : unique_indexed_hkls;
     if (hkls_for_analysis.length < 5) { fallbackResult.centering = 'Unknown (too few unambiguous peaks in range)'; return fallbackResult; }
@@ -1150,7 +1245,7 @@ const satisfiesCondition = (h, k, l, condStr) => {
         }
         if (Math.round(value) % mod !== 0) { return false; }
     }
-    return true; 
+    return true;
 };
 function countViolations(indexed_hkls, rules) {
     let count = 0; const details = [];
@@ -1163,7 +1258,7 @@ function countViolations(indexed_hkls, rules) {
             if (!satisfiesCondition(h, k, l, cond)) {
                 isViolation = true; const tth_string = calc_tth ? ` at ${calc_tth.toFixed(3)}°` : '';
                 details.push(`(${h},${k},${l})${tth_string} violates ${zone}: ${cond}`);
-                break; 
+                break;
             }
         }
         if (!isViolation) {
