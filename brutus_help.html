@@ -273,10 +273,9 @@ The total search space is $120 \times 82,160 = \textbf{9,859,200 combinations}$.
 <strong>Monoclinic (4 parameters, $A, B, C, D$) - WebGPU Accelerated (Exhaustive):</strong>
 Solves a 4x4 system for the four reciprocal parameters.
 <br><br>
-This search is performed on the <strong>GPU (WebGPU)</strong>. It iterates through all combinations of 4 peaks from the first <strong>10</strong> ($\binom{10}{4} = 210$ combos). 
-For <em>each</em> peak quadruplet, it tests every possible combination of 4 HKLs drawn from a basis set of <strong>100</strong> simple reflections. The total HKL combinations are $\binom{100}{4} = 3,921,225$.
-<br>
-The total search space is $210 \times 3,921,225 = \textbf{823,457,250 combinations}$. This is a fully exhaustive search of this HKL basis set.
+This search is performed on the GPU. It iterates through all combinations of 4 peaks from the first <strong>10</strong> ($\binom{10}{4} = 210$ combos). 
+For <em>each</em> peak quadruplet, it tests every possible combination of 4 HKLs drawn from a basis set of 100 simple reflections. The total HKL combinations are $\binom{100}{4} = 3,921,225$.
+The total search space is $210 \times 3,921,225 = \textbf{823,457,250 combinations}$. This is a fully exhaustive search of this HKL basis set. It should take about 10-20 seconds for a regular GPU.
 <br>
 <em>Note: Search is constrained to cell edges between 2 and 50 Å, and a $\beta$ angle between 90° and 150°.</em>
 </li>
@@ -289,7 +288,7 @@ The total search space is $210 \times 3,921,225 = \textbf{823,457,250 combinatio
                 It iterates through all combinations of 6 peaks from the first 10 ($\binom{10}{6} = 210$ combos).
                 For <em>each</em> peak sextuplet, it tests every possible combination of 6 HKLs drawn from a basis set of <strong>100</strong> simple reflections. The total HKL combinations are $\binom{100}{6} = 1,192,052,400$. This defines a total search space of $210 \times 1,192,052,400 = \textbf{250.3 Billion combinations}$. This is an <strong>exhaustive</strong> search of the HKL basis set, guaranteeing full coverage.
                 <br><br>
-                <em><strong>Note on GPU Memory & Tweaking:</strong> This full set of HKL combinations requires ~26.64 GB of memory, which is larger than most GPUs buffer limit (e.g., 2.1 GB for a Nvidia T1000 8Gb GPU). To solve this, the program automatically chunks this 26.64 GB task into smaller pieces. It checks your GPU's maximum buffer size and dynamically calculates the number of chunks required (e.g., a 2.1 GB card would run ~15 chunks of ~1.9 GB). The search is then run sequentially on each chunk. The number of chunks will be listed in the console. Be patient during data transfer to GPU. The triclinic testfile should take about 20 minutes on a regular GPU.</em>
+                <em><strong>Note on GPU Memory & Tweaking:</strong> This full set of HKL combinations requires ~26.64 GB of memory, which is larger than most GPUs buffer limit (e.g., 2.1 GB for a Nvidia T1000 8Gb GPU). To solve this, the program automatically chunks this 26.64 GB task into smaller pieces. It checks your GPU's maximum buffer size and dynamically calculates the number of chunks required (e.g., a 2 GB buffer card would run ~15 chunks). The search is then run sequentially on each chunk. The number of chunks will be listed in the console. Be patient during data transfer to GPU. The triclinic testfile should take about 20 minutes on a regular GPU at the time of this writting.</em>
                 <br><br>
                 <em><strong>To Tweak:</strong> The search is exhaustive, in this hkl range, for monoclinic and triclinic systems. To change the <strong>100-HKL</strong> basis set, edit the `max_tri` variable in the `get_hkl_search_list` function within `worker-logic.js`. To change the <strong>10-peak</strong> basis, edit the `max_p` variable in `brutus.html`.</em>
                 
