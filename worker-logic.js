@@ -437,11 +437,26 @@ const propagateErrors = (system, fitResult, cell) => {
 const hkl_search_list_cache = {};
 const get_hkl_search_list = (system) => {
     if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
-    const hkls = []; const max_h = 6, max_mono = 3, max_tri = 3;
+    const hkls = []; const max_h = 8, max_mono = 4, max_tri = 4;
     if (system === 'monoclinic') {
-        for (let h = -max_mono; h <= max_mono; h++) for (let k = 0; k <= max_mono; k++) for (let l = -max_mono; l <= max_mono; l++) {
-            if (h === 0 && k === 0 && l === 0) continue; if (k === 0) { if (h < 0) continue; if (h === 0 && l <= 0) continue; } hkls.push([h, k, l]);
+
+ for (let h = 0; h <= max_mono; h++) { // Rule 2: h >= 0
+            for (let k = 0; k <= max_mono; k++) { // Rule 1: k >= 0
+                for (let l = -max_mono; l <= max_mono; l++) {
+                    
+                    // (0,0,0) is not a reflection
+                    if (h === 0 && k === 0 && l === 0) continue;
+                    
+                    // Apply special h=0 rule: if h=0, l must be >= 0
+                    if (h === 0 && l < 0) continue;
+
+                    hkls.push([h, k, l]);
+                }
+            }
         }
+
+
+
     } else if (system === 'triclinic') {
         for (let h = -max_tri; h <= max_tri; h++) for (let k = -max_tri; k <= max_tri; k++) for (let l = 0; l <= max_tri; l++) {
             if (h === 0 && k === 0 && l === 0) continue; if (l === 0 && k < 0) continue; if (l === 0 && k === 0 && h <= 0) continue; hkls.push([h, k, l]);

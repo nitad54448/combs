@@ -254,7 +254,7 @@
             Solves a 2x2 system of equations using pairs of peaks from the first 10:
             $$ Q_{obs, 1} = H_{1,a} \cdot P_1 + H_{1,c} \cdot P_2 $$
             $$ Q_{obs, 2} = H_{2,a} \cdot P_1 + H_{2,c} \cdot P_2 $$
-            It assigns pairs of trial $(hkl)$ vectors (where $h,k,l$ are integers up to 5) to solve for $P_1$ and $P_2$, which are then converted to $a$ and $c$.
+            It assigns pairs of trial $(hkl)$ vectors (where $h,k,l$ are integers up to 8) to solve for $P_1$ and $P_2$, which are then converted to $a$ and $c$.
         </li>
 
         <li>
@@ -288,16 +288,17 @@ The total search space is $120 \times 82,160 = \textbf{9,859,200 combinations}$.
     Solves the full 6x6 system for all reciprocal parameters. This is the most computationally demanding search, executed entirely on the <strong>GPU (WebGPU)</strong>.
     <br><br>
     It iterates through all combinations of 6 peaks from the first <strong>10</strong> ($\binom{10}{6} = 210$ combos).
-    For <em>each</em> peak sextuplet, it tests every possible combination of 6 HKLs drawn from a basis set of <strong>120</strong> simple reflections. The total HKL combinations are $\binom{120}{6} = 3,652,745,460$.
-    This defines a total search space of $210 \times 3,652,745,460 = \textbf{767.1 Billion combinations}$.
+    For <em>each</em> peak sextuplet, it tests every possible combination of 6 HKLs drawn from a basis set of <strong>100</strong> simple reflections. The total HKL combinations are $\binom{100}{6} = 1,192,052,400$.
+    This defines a total search space of $210 \times 1,192,052,400 = \textbf{250.3 Billion combinations}$.
     <br><br>
-    <em><strong>Note on Chunks:</strong> The total number of HKL combinations ($\approx 3.65 \text{ Billion}$) is too large for most GPUs to handle at once. The program automatically splits this HKL list into smaller "chunks" (e.g., ~42 for a 2Gb buffer memory GPU) and sends them to the GPU one by one.</em>
+    <em><strong>Note on Chunks:</strong> The total number of HKL combinations ($\approx 1.19 \text{ Billion}$) is too large for most GPUs to handle at once. 
+        The program automatically splits this HKL list into smaller "chunks" (e.g., ~14 for a 2Gb WebGPU buffer) and sends them to the GPU one by one.</em>
     <br><br>
-    <em><strong>To Tweak:</strong> The search parameters are set in `brutus.html` inside the `startIndexing` function.</em>
+    <em><strong>To Tweak:</strong> The search parameters are set in <code>brutus.html</code> inside the <code>startIndexing</code> function.</em>
     <ul>
-        <li><em>To change the <strong>10-peak</strong> basis (for Monoclinic/Triclinic), edit the `max_p` variable for each system.</em></li>
-        <li><em>To change the <strong>100-HKL</strong> basis (for Monoclinic), edit its `slice(0, 100)` value.</em></li>
-        <li><em>To change the <strong>120-HKL</strong> basis (for Triclinic), edit its `slice(0, 120)` value.</em></li>
+        <li><em>To change the <strong>10-peak</strong> basis (for Monoclinic/Triclinic), edit the <code>max_p</code> variable for each system.</em></li>
+        <li><em>To change the <strong>100-HKL</strong> basis (for Monoclinic), edit its <code>slice(0, 100)</code> value.</em></li>
+        <li><em>To change the <strong>100-HKL</strong> basis (for Triclinic), edit its <code>slice(0, 100)</code> value.</em></li>
     </ul>
     <br>
     <em>Note: Search is constrained to cell edges between 2 and 50 Å, and all angles ($\alpha, \beta, \gamma$) between 60° and 150°.</em>
@@ -461,7 +462,8 @@ The total search space is $120 \times 82,160 = \textbf{9,859,200 combinations}$.
 
             <h4>Why were no solutions found?</h4>
             <ul>
-                <li><strong>Poor Peak List:</strong> The most common cause. Ensure the peak list is accurate, with impurity peaks removed and positions refined. A minimum of 15-20 clean peaks is recommended.</li>
+                <li><strong>Poor Peak List:</strong> The most common cause. Ensure the peak list is accurate, with impurity peaks removed and positions refined. A minimum of 15-20 clean peaks is recommended.
+                For low symmetry make sure the first 10 peaks are accurate and have largest interplanar distances.</li>
                 <li><strong>Incorrect Parameters:</strong> Verify the <code>Wavelength</code> and ensure the <code>Max Volume</code> is chemically reasonable and sufficiently large.</li>
                 <li><strong>High Zero-Point Error:</strong> While the program corrects for small zero errors internally, a very large instrument misalignment may still cause failure.</li>
                 <li><strong>Sample is a Mixture:</strong> Indexing requires a peak list from a single crystalline phase.</li>
@@ -484,8 +486,8 @@ The total search space is $120 \times 82,160 = \textbf{9,859,200 combinations}$.
                 <li><strong>SPDDRR1_zhu1_Cu.xy</strong> Sample 1 from the same Round Robin, measured with a Cu Ka X-ray tube; likely a monoclinic with a=7.672, b=9.624, c=7.076, beta=106.24</li>
                 <li><strong>PbSO4.xra and FAP.xra</strong> Laboratory Cu Ka samples: orthorhombic and hexagonal, respectively.</li>
             
-              <li><strong>P-1_sim_5_6_7_86_91_96.txt</strong> This is a simulated powder diffraction pattern for a P-1 lattice, wavelenght 1.7 A, and the lattice parameters a=5.0, b=6.0, c=7.0, alpha=86.0, beta=91.0 and gamma=96.0 deg. On a Windows PC, with Chrome and Nvidia T1000 8GPU card, it takes about 10 minutes to find a solution with M(20)=86.89 (or an equivalent one, such as a=6.000, b=6.998, c=4.997, alpha=91.0, beta=83.99 and gamma=93.99 deg).
-                On the CPU version of this indexing program (see combs.html) a solution will NOT be found after 24 hours.</li>
+              <li><strong>P-1_sim_5_6_7_86_91_96.txt</strong> This is a simulated powder diffraction pattern for a P-1 lattice, wavelenght 1.7 A, and the lattice parameters a=5.0, b=6.0, c=7.0, alpha=86.0, beta=91.0 and gamma=96.0 deg. On a Windows PC, with Chrome and Nvidia T1000 8GPU card, it takes less than 3 minutes to find a solution with M(20)=86.89 (or an equivalent one, such as a=6.000, b=6.998, c=4.997, alpha=91.0, beta=83.99 and gamma=93.99 deg).
+                On the CPU version of this indexing program (see combs.html) a solution will be found after about 24 hours.</li>
 
             
             </ul>

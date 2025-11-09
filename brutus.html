@@ -2090,7 +2090,7 @@ const startIndexing = async () => {
                     hklBasisArray.set(hkl, i * 4);
                 });
 
-                // Get 4-peak combos
+                // Get 4-peak combos.... how many lines
                 const max_p = Math.min(10, q_obs.length);
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-3; i++) for (let j=i+1; j<max_p-2; j++)
@@ -2190,7 +2190,7 @@ const startIndexing = async () => {
                 
                 const qObsArray = new Float32Array(q_obs);
                 
-                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 120);
+                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 100);
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
@@ -2713,7 +2713,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 09 nov';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Brutus, 10 nov';
           	const programURL = window.location.href;
             
     
@@ -3240,6 +3240,6 @@ window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectU
    
     
 </script>
-<div id="app-footer">Brutus, 09 nov 2025</div>
+<div id="app-footer">Brutus, 10 nov 2025</div>
 </body>
 </html>
