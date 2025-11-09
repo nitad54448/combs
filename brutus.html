@@ -606,9 +606,66 @@ const WAVELENGTH_PRESETS = {
     
     const statusTextElement = document.getElementById('status-text');
 
-    // Global variable for space group data ---
+
+    /**
+     * NEW: Asynchronously checks WebGPU compute capabilities on page load.
+     * Disables and grays out Monoclinic/Triclinic checkboxes if support is absent.
+     */
+    async function checkWebGPUCapabilities() {
+        // Find the checkboxes and their parent <label> elements
+        const monoCheckbox = document.querySelector('.system-checkbox[value="monoclinic"]');
+        const triCheckbox = document.querySelector('.system-checkbox[value="triclinic"]');
+        const monoLabel = monoCheckbox ? monoCheckbox.parentElement : null;
+        const triLabel = triCheckbox ? triCheckbox.parentElement : null;
+
+        try {
+            if ('gpu' in navigator) {
+                const engine = new WebGPUEngine();
+                await engine.init(); // The critical test
+                // If this line is reached, GPU is fine.
+                webGPUSupportsCompute = true;
+                console.log("WebGPU compute capabilities verified.");
+            } else {
+                throw new Error("WebGPU not found in navigator.");
+            }
+        } catch (err) {
+            console.warn("WebGPU initialization failed:", err.message);
+            
+            // This is the core logic you requested
+            webGPUSupportsCompute = false; 
+            
+            // Show the on-screen error message (longer duration)
+            showStatus("WebGPU init failed. Monoclinic and Triclinic searches are disabled.", "error", 10000); 
+            
+            // Disable and gray out the monoclinic checkbox
+            if (monoCheckbox) {
+                monoCheckbox.disabled = true;
+                monoCheckbox.checked = false;
+            }
+            if (monoLabel) {
+                monoLabel.style.opacity = '0.5';
+                monoLabel.style.cursor = 'not-allowed';
+            }
+            
+            // Disable and gray out the triclinic checkbox
+            if (triCheckbox) {
+                triCheckbox.disabled = true;
+                triCheckbox.checked = false;
+            }
+            if (triLabel) {
+                triLabel.style.opacity = '0.5';
+                triLabel.style.cursor = 'not-allowed';
+            }
+        }
+    }
+
+    // --- Global variable for space group data ---
     let spaceGroupData = null;
-    let webGPUSupportsCompute = true;
+    let webGPUSupportsCompute = true; // This flag will be set by the function above
+
+
+
+    
    // Function to load space group JSON data, error if not found ---
     async function loadSpaceGroupData() {
         try {
@@ -626,7 +683,7 @@ const WAVELENGTH_PRESETS = {
     
     // --Load data on startup, add message to console, see file event 
     loadSpaceGroupData();
-
+    checkWebGPUCapabilities(); //check webGPU
     
     ui.solutionsTableHeaders.forEach(header => {
         header.addEventListener('click', () => {
@@ -1808,38 +1865,36 @@ function combinations(n, k) {
 //
 // 8 nov - full search, crazy, on GPU for mono and triclinic
 //9 nov, if error in GPU, disable the mono adn triclinic
-  const startIndexing = async () => { // Make it async
+const startIndexing = async () => { 
 
-        // --- Check systems and GPU *before* anything else 
-        const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
-        if (systemsToSearch.length === 0) {
-            showStatus("Please select at least one crystal system to search.", "error");
-            return;
+    const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+    if (systemsToSearch.length === 0) {
+        showStatus("Please select at least one crystal system to search.", "error");
+        return;
+    }
+
+    const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic');
+    let webgpuEngine = null;
+
+    // NEW, SIMPLER LOGIC:
+    // The checkboxes are already disabled if webGPUSupportsCompute is false.
+    // So if 'needsWebGPU' is true, we can safely try to initialize the engine.
+    if (needsWebGPU) {
+        try {
+            const engine = new WebGPUEngine();
+            await engine.init();
+            webgpuEngine = engine; // Store the engine for use
+        } catch (err) {
+            // This is a fallback in case it worked on load but fails now (e.g., driver crash)
+            console.warn("WebGPU initialization failed:", err.message);
+            showStatus("WebGPU failed unexpectedly. Monoclinic/Triclinic searches are disabled.", "error", 8000);
+            webGPUSupportsCompute = false; // Set flag
+            setUIState(false); // Manually re-run setUIState to disable boxes
+            return; // Stop indexing
         }
+    }
 
-        const needsWebGPU = systemsToSearch.includes('monoclinic') || systemsToSearch.includes('triclinic');
-        let webgpuEngine = null;
 
-        if (needsWebGPU) {
-            try {
-                if ('gpu' in navigator) {
-                    const engine = new WebGPUEngine();
-                    await engine.init(); // This is the test that fails
-                    webgpuEngine = engine; // Success!
-                    webGPUSupportsCompute = true; // Confirm support
-                    console.log("WebGPU initialized successfully.");
-                } else {
-                    throw new Error("WebGPU not found in navigator."); // Jump to catch
-                }
-            } catch (err) {
-                
-                console.warn("WebGPU initialization failed:", err.message);
-                showStatus("WebGPU init failed. Monoclinic and Triclinic searches are disabled.", "error", 8000);
-                webGPUSupportsCompute = false;
-                webgpuEngine = null;
-            }
-        }
-        
 
         const tthMinVal = parseFloat(ui.tthMinSlider.value);
         const tthMaxVal = parseFloat(ui.tthMaxSlider.value);
