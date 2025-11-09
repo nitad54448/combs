@@ -467,7 +467,7 @@
                                 </div>
                                 <div>
                                     <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
-                                    <input type="number" id="impurity-peaks" value="0" min="0" max="4" step="1" class="control-input">
+                                    <input type="number" id="impurity-peaks" value="0" min="0" max="3" step="1" class="control-input">
                                 </div>
                             </div>
                             
@@ -2153,7 +2153,7 @@ const startIndexing = async () => {
                         cpuRefineState,
                         (msg) => { 
                             if (msg.type === 'solution') {
-                                solutions.push(msg.payload);
+                       //         solutions.push(msg.payload);
                                 pruneSolutions();
                                 if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
                                 sortSolutions();
@@ -2190,12 +2190,15 @@ const startIndexing = async () => {
                 
                 const qObsArray = new Float32Array(q_obs);
                 
-                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 100);
+                const hkl_basis_raw = get_hkl_search_list('triclinic').slice(0, 120);
                 const hklBasisArray = new Float32Array(hkl_basis_raw.length * 4);
                 hkl_basis_raw.forEach((hkl, i) => { hklBasisArray.set(hkl, i * 4); });
 
                 // Get 6-peak combos
                 const max_p = Math.min(10, q_obs.length);
+
+ //               alert("DEBUG: The value for max_p is: " + max_p);
+
                 const peak_combos_raw = [];
                 for (let i=0; i<max_p-5; i++) for (let j=i+1; j<max_p-4; j++)
                 for (let k=j+1; k<max_p-3; k++) for (let l=k+1; l<max_p-2; l++)
@@ -2265,7 +2268,7 @@ const startIndexing = async () => {
                             cell, baseParams, cpuRefineState,
                             (msg) => { 
                                 if (msg.type === 'solution') {
-                                    solutions.push(msg.payload);
+                               //     solutions.push(msg.payload);
                                     pruneSolutions();
                                     if (solutions.length === 1) ui.solutionsLed.className = 'led-indicator green';
                                     sortSolutions();

@@ -497,7 +497,11 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
     let fitResult_no_zero = null; const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
     let M_with_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
     M_with_zero.forEach((row, i) => { const tth_rad = tth_obs_rad[initial_peak_indices[i]]; row.push((-4 / (wavelength**2)) * Math.sin(tth_rad)); });
+    
+
     const fitResult_with_zero = solveLeastSquares(M_with_zero, q_vec_initial, q_vec_initial);
+
+
     if (fitResult_with_zero && fitResult_with_zero.solution) {
         let initial_zero_correction_rad = fitResult_with_zero.solution[fitResult_with_zero.solution.length - 1];
         let initial_zero_correction_deg = initial_zero_correction_rad * DEG;
@@ -510,9 +514,17 @@ function refineAndTestSolution( initialParams, data, state, postMessage_func ) {
             q_vec_corrected.push(corrected_q);
         }
         let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+
         fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_corrected, q_vec_corrected);
+
+
     }
-    if (!fitResult_no_zero) { let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system)); fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial); }
+    if (!fitResult_no_zero) { let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system)); 
+
+
+        fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
+
+    }
     if (!fitResult_no_zero || !fitResult_no_zero.solution) return;
 
     const initial_cell = extractCellFromFit(fitResult_no_zero.solution, system);
@@ -572,7 +584,11 @@ if (axes_to_check.some(p => (isNaN(p) || p < min_lp_check || p > max_lp_check)))
             let M_with_zero_final = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
             const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
             M_with_zero_final.forEach((row, i) => { const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]]; row.push((-4 / (wavelength**2)) * Math.sin(tth_rad)); });
+                     
+          
             const fitResult_with_zero_final = solveLeastSquares(M_with_zero_final, q_vec_final, q_vec_final);
+
+          
             if (fitResult_with_zero_final && fitResult_with_zero_final.solution) {
                 const refined_cell = extractCellFromFit(fitResult_with_zero_final.solution, system);
                 if (refined_cell) {
@@ -931,7 +947,10 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
                 if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
             } catch {}
         });
-        const theoretical_hkls_for_tf = generateHKL_for_worker(sol, q_max, d_min);
+     
+        // Tsend wave
+const theoretical_hkls_for_tf = generateHKL_for_worker(sol, q_max, d_min, wavelength);
+
         const indexedPeaks = [];
         for(let i=0; i<N_FOR_M20; i++){
              const q_o = q_obs[i];
@@ -962,7 +981,10 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             const system = sol.system;
             const min_peaks_needed = {cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4}[system];
             if (!min_peaks_needed || data.peaks.length < min_peaks_needed) return;
-            const theoretical_hkls = generateHKL_for_worker(sol, q_max, d_min);
+
+            // add send wave
+const theoretical_hkls = generateHKL_for_worker(sol, q_max, d_min, wavelength);
+
             const first_four_indexed = [];
             for(let i=0; i<4 && i < q_obs.length; i++){
                 const q_o = q_obs[i];
@@ -973,7 +995,7 @@ function findTransformedSolutions(initialSolutions, data, state, postMessage_fun
             }
             if (first_four_indexed.length < min_peaks_needed) return;
             let closest_pair = {i: -1, j: -1, diff: Infinity};
-            for(let i=0; iV < first_four_indexed.length; i++){
+            for(let i=0; i < first_four_indexed.length; i++){
                 for(let j=i+1; j<first_four_indexed.length; j++){
                     const diff = Math.abs(first_four_indexed[i].q_obs - first_four_indexed[j].q_obs);
                     if(diff < closest_pair.diff){ closest_pair = {i, j, diff}; }
