@@ -300,7 +300,7 @@
 
              <div class="control-group">
                 <label class="control-label">Space Group</label> <div id="space-group-fields">
-                    <input type="text" id="space-group-input" class="control-input" placeholder="e.g., 62 or Pnma">
+                    <input type="text" id="space-group-input" class="control-input" placeholder="e.g., 3 or P 1 2 1">
                     <select id="space-group-setting" class="control-select" disabled>
                          <option value="-1">Default</option>
                     </select>
@@ -833,6 +833,7 @@ function updateParameterInputs(system, settingDesc = null) {
                 if (l === 0 && k === 0 && h < 0) return false;
                 return true;
 
+            case "2":
             case "2/m": {
                 const ua = (setting?.description || 'b').toLowerCase(); // Use description
                 if (ua === 'b') { // Unique axis b. Equivalents: (h,k,l), (h,-k,l), (-h,k,-l), (-h,-k,-l)
@@ -914,6 +915,8 @@ function updateParameterInputs(system, settingDesc = null) {
             case "6/m":
             case "6/mmm":
                 return (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c);
+            
+            case "2":
             case "2/m": {
                 const uniqueAxis = setting?.description || 'b';
 
