@@ -57,13 +57,13 @@
       
         #hkl-chart-container { 
             width: 100%; 
-            flex-grow: 1; /* Changed from height: 100% */
+            flex-grow: 1; 
             position: relative; 
-            min-height: 0; /* For flex-grow to work in a flex column */
+            min-height: 0; 
         }
         #placeholder { 
             width: 100%; 
-            flex-grow: 1; /* Changed from height: 100% */
+            flex-grow: 1; 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
@@ -80,8 +80,8 @@
             font-size: 0.75rem;
             color: var(--text-dark);
             border-top: 1px solid #e5e7eb; /* Light border inside results panel */
-            margin-top: auto; /* Pushes it to the bottom */
-            flex-shrink: 0; /* Don't let it shrink */
+            margin-top: auto; 
+            flex-shrink: 0;
         }
         
        
@@ -101,7 +101,7 @@
             text-align: left;
         }
         
-        /* NEW: The dark box containing the slider */
+    
         .slider-box {
             background-color: var(--light-bg);
             border: 1px solid var(--border-color);
@@ -119,16 +119,16 @@
         .slider-wrapper {
             position: relative;
             flex-grow: 1;
-            display: flex; /* Use flex to make input fill space */
+            display: flex; 
             align-items: center;
-            height: 100%; /* Ensure it has height */
+            height: 100%; 
         }
 
         input[type="range"].custom-slider {
-            flex-grow: 1; /* Slider input fills wrapper */
+            flex-grow: 1; 
             
             height: 4px; 
-            background: transparent; /* Make track invisible */
+            background: transparent; 
             border-radius: 2px;
             appearance: none; -webkit-appearance: none; outline: none;
             margin: 0;
@@ -140,7 +140,7 @@
             background: #ffffff80; /* blanc; le 80 indique la transparence */
             border-radius: 50%;
             cursor: pointer;
-            border: 2px solid var(--primary-accent); /* Thicker blue border */
+            border: 2px solid var(--primary-accent); 
             /* Add z-index to ensure thumb is on top of value */
             position: relative;
             z-index: 10;
@@ -151,7 +151,7 @@
             background: #ffffff80; /* Pure white fill; 50% tranparence */
             border-radius: 50%;
             cursor: pointer;
-            border: 3px solid var(--primary-accent); /* Thicker blue border */
+            border: 3px solid var(--primary-accent); 
             position: relative;
             z-index: 10;
         }
@@ -181,11 +181,11 @@
         input[type="checkbox"] { accent-color: var(--primary-accent); transform: scale(1.1); }
 
         .btn-like.file-label {
-            display: block; /* Make it take full width like inputs */
+            display: block; 
             width: 100%; /* Explicitly set to 100% of parent */
-            max-width: 100%; /* Ensure it doesn't overflow */
-            text-align: left; /* Keep text aligned left */
-            box-sizing: border-box; /* Ensure padding is included in width */
+            max-width: 100%; 
+            text-align: left; 
+            box-sizing: border-box; 
         }
         
         #space-group-fields {
@@ -234,7 +234,7 @@
             transition: opacity 0.3s;
             font-size: 0.85rem;
             line-height: 1.5;
-            border: 1px solid var(--border-color); /* Add theme border */
+            border: 1px solid var(--border-color); 
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
         .tooltip .tooltiptext ul {
@@ -272,7 +272,7 @@
             <div class="control-group">
                 
                  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 8px;">
-                     <!-- NEW: Tooltip HTML -->
+                    
                      <div class="tooltip">
                          <span id="tooltip-icon" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; font-weight: 700; color: var(--dark-bg); background-color: var(--text-dark); border-radius: 50%; cursor: pointer; user-select: none; font-size: 0.875rem;">?</span>
                          <span id="tooltip-text" class="tooltiptext">
@@ -287,11 +287,11 @@
                              </ul>
                          </span>
                      </div>
-                     <!-- END Tooltip HTML -->
+                   
                      <label for="exp-file-input" class="control-label" style="margin-bottom: 0;">Experimental Data (Optional)</label>
                  </div>
                  
-                 <!-- Existing file input button -->
+                
                  <label for="exp-file-input" class="btn-like btn-secondary file-label">
                      <span id="exp-file-name">Select Data File...</span>
                  </label>
@@ -422,7 +422,7 @@
                 'Co': { ka1: 1.78897, ka2: 1.79285, ka_avg: 1.79026 },
                 'Fe': { ka1: 1.93604, ka2: 1.93998, ka_avg: 1.93735 },
                 'Cr': { ka1: 2.28970, ka2: 2.29361, ka_avg: 2.29092 },
-                'custom': { ka1: null, ka2: null, ka_avg: null } // User defined, treated as monochromatic
+                'custom': { ka1: null, ka2: null, ka_avg: null } // User defined, monochromatic
             };
 
             const debounce = (func, delay) => { let timeout; return function(...args) { const context = this; clearTimeout(timeout); timeout = setTimeout(() => func.apply(context, args), delay); }; };
@@ -475,7 +475,7 @@ const validateAndRevert = (input, min, max, defaultValue) => {
 function updateParameterInputs(system, settingDesc = null) {
     const inputs = { a: uiElements.cellA, b: uiElements.cellB, c: uiElements.cellC, alpha: uiElements.cellAlpha, beta: uiElements.cellBeta, gamma: uiElements.cellGamma };
     
-    // --- Define requested bounds ---
+    // bounds, 100 ? c'est débile mais bon
     const bounds = {
         a: { min: 1, max: 100, default: 5.0 },
         b: { min: 1, max: 100, default: 5.0 },
@@ -487,7 +487,7 @@ function updateParameterInputs(system, settingDesc = null) {
 
     // Disable and clear all listeners first
     Object.values(inputs).forEach(input => {
-        // Remove all listeners we might have added
+        
         input.removeEventListener('input', debouncedCalculate);
         if (input._styleListener) {
             input.removeEventListener('input', input._styleListener);
@@ -503,13 +503,13 @@ function updateParameterInputs(system, settingDesc = null) {
         input.classList.remove('error'); 
     });
     
-    // Set all angles to 90 as a default before applying constraints
+    
     inputs.alpha.value = 90.0; inputs.beta.value = 90.0; inputs.gamma.value = 90.0;
 
     // Helper function to add listeners
     const setupListener = (inputElement) => {
         if (!inputElement.getAttribute('listener-added')) {
-            // Get bounds for this specific input
+    
             const inputId = inputElement.id.replace('cell-', ''); // 'a', 'b', 'alpha', etc.
             const b = bounds[inputId];
             
@@ -521,7 +521,7 @@ function updateParameterInputs(system, settingDesc = null) {
                 // 2. Add revert listener on 'change' (loss of focus)
                 inputElement._revertListener = () => {
                     validateAndRevert(inputElement, b.min, b.max, b.default);
-                    // Also trigger calculation update *after* reverting
+                    // Also trigger calculation update 
                     debouncedCalculate(); 
                 };
                 inputElement.addEventListener('change', inputElement._revertListener);
@@ -547,7 +547,7 @@ function updateParameterInputs(system, settingDesc = null) {
         }
     };
 
-    // --- This switch logic is now correct ---
+    // à vérifier le switch, avant c'était if/else, illisible
     switch (system) {
         case 'cubic':
             enable('a');
@@ -557,7 +557,7 @@ function updateParameterInputs(system, settingDesc = null) {
                 // Validate linked inputs visually
                 validateInputStyle(inputs.b, bounds.b.min, bounds.b.max);
                 validateInputStyle(inputs.c, bounds.c.min, bounds.c.max);
-                // debouncedCalculate is already called by the 'a' input
+               
             });
             inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
             // Add 'change' listener for linked inputs
@@ -671,7 +671,7 @@ function updateParameterInputs(system, settingDesc = null) {
     const preset = uiElements.wavelengthPreset.value;
     const plotKa2 = uiElements.plotKa2Checkbox.checked && preset !== 'custom';
 
-    // --- NEW: Check for errors and empty fields BEFORE parsing ---
+    // erreurs ? 
     let hasError = false;
     let hasEmpty = false;
     
@@ -682,7 +682,7 @@ function updateParameterInputs(system, settingDesc = null) {
     ];
     
     for (const input of inputsToValidate) {
-        // Check only if input is *not* disabled
+        
         if (!input.disabled) {
             if (input.classList.contains('error')) {
                 hasError = true;
@@ -704,7 +704,7 @@ function updateParameterInputs(system, settingDesc = null) {
         return null; // Stop calculation
     }
     
-    // --- Parse values (no revert) ---
+    
     // All inputs are now considered valid and non-empty
     
     let lambda_val = parseFloat(uiElements.wavelength.value);
@@ -765,7 +765,7 @@ function updateParameterInputs(system, settingDesc = null) {
         system: system
     };
     
-    // Final check for NaN (shouldn't happen, but good practice)
+    // Final check for NaN , useless I think
     if (isNaN(params.lambda) || isNaN(params.a) || isNaN(params.b) || isNaN(params.c) || isNaN(params.alpha) || isNaN(params.beta) || isNaN(params.gamma)) {
          console.error("NaN value detected after parsing."); 
          return null; 
@@ -812,15 +812,11 @@ function updateParameterInputs(system, settingDesc = null) {
         return true; // P, R, etc.
     }
 
-    // ---- Friedel reduction (always keep one of hkl / -h-k-l) ----
-    // *** REMOVED incorrect friedelCanonical function ***
 
     // ---- Laue class canonicalization ----
     function isCanonical(h, k, l) {
         // This function combines Friedel's Law (hkl vs -h-k-l)
         // and Laue class symmetry (e.g., hkl vs h-kl)
-        // to return only one reflection from the set of
-        // symmetry-equivalent reflections for powder diffraction.
 
         const laue = (laueClass || "").toLowerCase();
 
@@ -1252,7 +1248,7 @@ const calculateAndDrawHKLs = () => {
 
             const debouncedCalculate = debounce(calculateAndDrawHKLs, 300);
 
-// --- 2. REPLACE your existing 'sgInput.addEventListener' block with this one ---
+
 // This version is modified to pass the *default* setting description
 // to 'updateParameterInputs' when a new space group is entered.
 uiElements.sgInput.addEventListener('input', () => {
@@ -1285,14 +1281,9 @@ uiElements.sgInput.addEventListener('input', () => {
      }
 });
 
-// --- 3. ADD this NEW event listener for the 'space-group-setting' dropdown ---
-// This block was missing. It handles your Point 2 (resetting parameters)
-// and Point 1 (applying constraints for the new setting).
 uiElements.settingSelect.addEventListener('change', () => {
     if (!currentSpaceGroup) return;
 
-    // Point 2: Reset lattice parameters to default values
-    // (Using the defaults from your HTML 'value' attributes)
     uiElements.cellA.value = "5.0";
     uiElements.cellB.value = "5.0";
     uiElements.cellC.value = "5.0";
@@ -1416,7 +1407,7 @@ uiElements.settingSelect.addEventListener('change', () => {
                      
                      experimentalData = { tth: parsed.tth, intensity: parsed.intensity };
                      
-                     // --- NEW: Update sliders and inputs based on file range ---
+                     // --- update sliders and inputs based on file range
                      if (experimentalData.tth.length > 0) {
                         let fileMin2T = Math.min(...experimentalData.tth);
                         let fileMax2T = Math.max(...experimentalData.tth);
