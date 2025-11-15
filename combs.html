@@ -1017,7 +1017,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, spaceGroupData, waveleng
         return fallbackResult;
     }
 
-    // This now calls the CORRECTED hkl generation function
+    
     const all_calc_hkls = generateHKL_for_analysis(
         solution, 
         wavelength, 
@@ -2680,7 +2680,7 @@ scales: {
     x: { 
         type: 'linear', 
         title: { display: true, text: '2-theta (degrees)' },
-        offset: false, // <-- THIS IS THE MISSING FIX
+        offset: false,
         ticks: {
             includeBounds: false, 
             callback: function(value, index, ticks) {
@@ -2824,7 +2824,7 @@ scales: {
                     const sinBeta = Math.sin(beta*Math.PI/180); const cosBeta = Math.cos(beta*Math.PI/180);
                     inv_d_sq = (1/(sinBeta*sinBeta))*(h*h/(a*a)+l*l/(c*c)-2*h*l*cosBeta/(a*c))+k*k/(b*b);
                     break;
-                // --- [ADDED] ---
+                
                 case 'triclinic':
                     const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
                     const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
@@ -3358,11 +3358,6 @@ function generateEquivalentCells(niggliCell, N_ignored, originalSystem = null) {
 
 
 
-
-
-
-
-
 //main report function, on peut optimiser...
 const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
@@ -3622,9 +3617,7 @@ const generatePDFReport = async () => {
       	const n_all_pdf = sol.n_all || reportPeaks.length;
       	paramLines.push({ label: `M(${n_all_pdf})`, value: `= ${(sol.m_all || 0).toFixed(2)}` });
       	paramLines.push({ label: `F(${n_all_pdf})`, value: `= ${(sol.fN_all || 0).toFixed(2)}` });
-      	
-      	// --- This part replaces all the old doc.text() calls ---
-      	
+      	     	
       	// 1. Find the width of the longest label
       	const longestLabelWidth = Math.max(...paramLines.map(line => doc.getTextWidth(line.label)));
       	
@@ -3644,7 +3637,6 @@ const generatePDFReport = async () => {
   	yPos += 3; // Add back spacing after the block
   	
   	// --- 3. NIGGLI REDUCED CELL (Moved up, Non-bold) ---
-  	// --- Do not show for triclinic (it's already reduced)
   	if (sol.system !== 'triclinic') {
       	doc.setFont(FONT.LABEL, 'normal').setFontSize(SIZE.H2).text('Niggli Reduced Cell:', margin, yPos); // Changed to H2, normal
       	yPos += 6;
@@ -3756,7 +3748,7 @@ const generatePDFReport = async () => {
               	 	   groupsByViolation[v].push({
               	 	 	   number: sg.number,
               	 	 	   standardSymbol: sg.standardSymbol, // Store standard symbol for reference if needed
-              	 	 	   settings: [{ symbol: sg.symbol, violations: sg.violatedReflections }] // <-- THE FIX IS HERE
+              	 	 	   settings: [{ symbol: sg.symbol, violations: sg.violatedReflections }] 
               	 	   });
               	   }
             	  });
