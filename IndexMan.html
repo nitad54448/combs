@@ -76,8 +76,8 @@
        
         #app-footer {
             padding: 8px 0;
-            text-align: center;
-            font-size: 0.75rem;
+            text-align: right;
+            font-size: 0.65rem;
             color: var(--text-dark);
             border-top: 1px solid #e5e7eb; /* Light border inside results panel */
             margin-top: auto; 
@@ -387,7 +387,7 @@
             
             
             <footer id="app-footer">
-                IndexMan, version 30 oct 2025
+                IndexMan, version 15 nov 2025. NitaD, Univ Paris-Saclay
             </footer>
         </div>
     </div>
@@ -765,7 +765,7 @@ function updateParameterInputs(system, settingDesc = null) {
         system: system
     };
     
-    // Final check for NaN , useless I think
+    // Final check for NaN , useless, I think
     if (isNaN(params.lambda) || isNaN(params.a) || isNaN(params.b) || isNaN(params.c) || isNaN(params.alpha) || isNaN(params.beta) || isNaN(params.gamma)) {
          console.error("NaN value detected after parsing."); 
          return null; 
@@ -775,8 +775,10 @@ function updateParameterInputs(system, settingDesc = null) {
 }
 
 
-
-    function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = null) {
+//
+// la partie critique, erreur ici avant le 15 nov 2025
+//
+function generateHKL_for_indexing(maxTth, params, laueClass, lambda, setting = null) {
     const { a, b, c, alpha, beta, gamma } = params;
     if (!a || !lambda) return [];
 
@@ -817,10 +819,12 @@ function updateParameterInputs(system, settingDesc = null) {
     function isCanonical(h, k, l) {
         // This function combines Friedel's Law (hkl vs -h-k-l)
         // and Laue class symmetry (e.g., hkl vs h-kl)
-
-        const laue = (laueClass || "").toLowerCase();
+        // It now maps all 32 point groups (from laueClass) to the 11 Laue classes.
+        
+        const laue = (laueClass || "").toLowerCase().replace(/\s+/g, '');
 
         switch (laue) {
+            // Triclinic (Laue Class -1)
             case "1":
             case "-1": // triclinic
                 // Friedel reduction only: l>0 or (l=0, k>0) or (l=0, k=0, h>=0)
@@ -829,7 +833,9 @@ function updateParameterInputs(system, settingDesc = null) {
                 if (l === 0 && k === 0 && h < 0) return false;
                 return true;
 
+            // Monoclinic (Laue Class 2/m)
             case "2":
+            case "m":
             case "2/m": {
                 const ua = (setting?.description || 'b').toLowerCase(); // Use description
                 if (ua === 'b') { // Unique axis b. Equivalents: (h,k,l), (h,-k,l), (-h,k,-l), (-h,-k,-l)
@@ -854,12 +860,23 @@ function updateParameterInputs(system, settingDesc = null) {
                 return true; // Should not be reached
             }
 
+            // Orthorhombic (Laue Class mmm)
+            case "222":
+            case "mm2":
             case "mmm":
                 // h>=0, k>=0, l>=0
                 if (h < 0 || k < 0 || l < 0) return false;
                 return true;
 
+            // Tetragonal (Laue Class 4/m)
+            case "4":
+            case "-4":
             case "4/m":
+            // Tetragonal (Laue Class 4/mmm)
+            case "422":
+            case "4mm":
+            case "-42m":
+            case "-4m2":
             case "4/mmm":
                 // l>=0, h>=k, k>=0
                 if (l < 0) return false;
@@ -867,9 +884,28 @@ function updateParameterInputs(system, settingDesc = null) {
                 if (h < k) return false;
                 return true;
 
+            // Trigonal (Laue Class -3)
+            case "3":
             case "-3":
+            // Trigonal (Laue Class -3m)
+            case "32":
+            case "3m":
             case "-3m":
+            case "312": // Specific cases
+            case "321":
+            case "3m1":
+            case "31m":
+            case "-3m1":
+            case "-31m":
+            // Hexagonal (Laue Class 6/m)
+            case "6":
+            case "-6":
             case "6/m":
+            // Hexagonal (Laue Class 6/mmm)
+            case "622":
+            case "6mm":
+            case "-6m2":
+            case "-62m":
             case "6/mmm":
                  // l>=0 and (h>=k>=0)
                 if (l < 0) return false;
@@ -878,7 +914,12 @@ function updateParameterInputs(system, settingDesc = null) {
                 if (h < k) return false; 
                 return true;
 
+            // Cubic (Laue Class m-3)
+            case "23":
             case "m-3":
+            // Cubic (Laue Class m-3m)
+            case "432":
+            case "-43m":
             case "m-3m":
                 // h>=k>=l>=0
                 if (l < 0) return false;
@@ -897,22 +938,60 @@ function updateParameterInputs(system, settingDesc = null) {
 
     // ---- d*2 formulas ----
     function inv_d_sq_for(h, k, l) {
-        switch ((laueClass || "").toLowerCase()) {
+        // This switch now maps all 32 point groups to the 11 Laue class formulas
+        const laue = (laueClass || "").toLowerCase().replace(/\s+/g, '');
+        
+        switch (laue) {
+            // Cubic (Laue Classes m-3, m-3m)
+            case "23":
             case "m-3":
+            case "432":
+            case "-43m":
             case "m-3m":
                 return (h*h + k*k + l*l) / (a*a);
+            
+            // Tetragonal (Laue Classes 4/m, 4/mmm)
+            case "4":
+            case "-4":
             case "4/m":
+            case "422":
+            case "4mm":
+            case "-42m":
+            case "-4m2":
             case "4/mmm":
                 return (h*h + k*k) / (a*a) + (l*l) / (c*c);
+            
+            // Orthorhombic (Laue Class mmm)
+            case "222":
+            case "mm2":
             case "mmm":
                 return (h*h) / (a*a) + (k*k) / (b*b) + (l*l) / (c*c);
+            
+            // Trigonal/Hexagonal (Laue Classes -3, -3m, 6/m, 6/mmm)
+            case "3":
             case "-3":
+            case "32":
+            case "3m":
             case "-3m":
+            case "312": // Specific cases
+            case "321":
+            case "3m1":
+            case "31m":
+            case "-3m1":
+            case "-31m":
+            case "6":
+            case "-6":
             case "6/m":
+            case "622":
+            case "6mm":
+            case "-6m2":
+            case "-62m":
             case "6/mmm":
                 return (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c);
             
+            // Monoclinic (Laue Class 2/m)
             case "2":
+            case "m":
             case "2/m": {
                 const uniqueAxis = setting?.description || 'b';
 
@@ -940,6 +1019,8 @@ function updateParameterInputs(system, settingDesc = null) {
                     return A*h*h + B*k*k + C*l*l + D*h*k + E*h*l + F*k*l; 
                 }
             }
+            
+            // Triclinic (Laue Class -1)
             case "1":
             case "-1": {
                 const ca = Math.cos(alpha * Math.PI / 180), cb = Math.cos(beta * Math.PI / 180), cg = Math.cos(gamma * Math.PI / 180);
@@ -966,6 +1047,7 @@ function updateParameterInputs(system, settingDesc = null) {
                 return A*h*h + B*k*k + C*l*l + D*h*k + E*h*l + F*k*l; 
             }
             default:
+                console.warn(`[inv_d_sq_for] Unknown point group, returning 0: ${laueClass}`);
                 return 0;
         }
     }
@@ -1203,7 +1285,7 @@ const calculateAndDrawHKLs = () => {
     const setting = currentSpaceGroup.settings?.[settingIndex] || currentSpaceGroup.settings?.[0] || null;
     const conditions = setting?.reflection_conditions || {};
 
-    const laueClass = currentSpaceGroup.point_group; // e.g. "2/m", "mmm", "4/mmm", "m-3m"
+    const laueClass = currentSpaceGroup.point_group; // e.g. "2", "m", "222", "4", "23"
 
     const filterHKLs = (hkl_list) => {
         return hkl_list.filter(refl => {
