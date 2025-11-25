@@ -560,7 +560,6 @@ function updateParameterInputs(system, settingDesc = null) {
                
             });
             inputs.b.value = inputs.a.value; inputs.c.value = inputs.a.value;
-            // Add 'change' listener for linked inputs
             inputs.a.addEventListener('change', () => {
                 // When 'a' reverts, revert 'b' and 'c' too
                 inputs.b.value = inputs.a.value;
@@ -703,7 +702,6 @@ function updateParameterInputs(system, settingDesc = null) {
         console.warn("Calculation paused, empty field detected.");
         return null; // Stop calculation
     }
-    
     
     // All inputs are now considered valid and non-empty
     
