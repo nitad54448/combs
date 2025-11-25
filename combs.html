@@ -3529,7 +3529,6 @@ const generatePDFReport = async () => {
           	 case 'hexagonal': paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`; break;
           	 case 'orthorhombic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`; break;
           	 case 'monoclinic': paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`; break;
-          	 // --- [ADDED TRICLINIC] ---
           	 case 'triclinic': 
             	 	paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
             	 	doc.text(sol.system.substring(0,4), margin, yPos);
@@ -4314,7 +4313,6 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
                     }
                 }
             }
-        // --- [ADDED] TRICLINIC PATH ---
         } else if (system === 'triclinic') {
             const { a, b, c, alpha, beta, gamma } = cell;
             if (!a || !b || !c || !alpha || !beta || !gamma) return [];
@@ -4541,7 +4539,6 @@ const extractCellFromFit = (params, system) => {
         cell.alpha = 90; cell.gamma = 90;
         break;
     
-    // --- [ADDED] ---
     case 'triclinic':
         const [p1, p2, p3, p4, p5, p6] = params; // A, B, C, D, E, F
         // G* = [ [A, F/2, E/2], [F/2, B, D/2], [E/2, D/2, C] ]
@@ -4859,7 +4856,6 @@ const extractCellFromFit = (params, system) => {
                     errors.s_a = (cell.a / (2*A)) * Math.sqrt(Math.abs(V[0][0]));
                     errors.s_c = (cell.c / (2*C)) * Math.sqrt(Math.abs(V[2][2]));
                     break;
-                // --- [ADDED] ---
                 case 'triclinic':
                     // 6x6 error propagation is complex, return empty for now
                     errors.s_a = 0; errors.s_b = 0; errors.s_c = 0;
