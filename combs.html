@@ -40,7 +40,7 @@
             z-index: 20;
         }
         
-        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color: 0.2s; }
+        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color 0.2s; }
         #drag-handle:hover, #drag-handle:active { background-color: var(--primary-accent); }
         
         #results-area { 
@@ -156,7 +156,7 @@
         .solutions-table th.sort-desc::after { border-top: 4px solid var(--text-light); }
         .solutions-table td:nth-child(4), .solutions-table td:nth-child(5) { text-align: right; } /* Align Vol and M20 right */
 
-        .solutions-table tbody tr { cursor: pointer; transition: background-color: 0.2s; }
+        .solutions-table tbody tr { cursor: pointer; transition: background-color 0.2s; }
         .solutions-table tbody tr:hover { background-color: var(--light-bg); }
         .solutions-table tbody tr.selected { background-color: var(--primary-accent); color: white;}
 
@@ -179,7 +179,7 @@
         .help-icon {
             display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
             background-color: var(--border-color); color: var(--text-light); border-radius: 50%;
-            font-weight: bold; font-size: 1rem; cursor: help; transition: background-color: 0.2s;
+            font-weight: bold; font-size: 1rem; cursor: help; transition: background-color 0.2s;
         }
         .help-icon:hover { background-color: #6b7280; }
 
@@ -757,6 +757,11 @@ const WAVELENGTH_PRESETS = {
         // Keep only the top PRUNE_TO_COUNT solutions
         solutions = solutions.slice(0, PRUNE_TO_COUNT);
 
+        // If the currently selected solution was pruned, clear the selection
+        if (selectedSolution && !solutions.includes(selectedSolution)) {
+            selectedSolution = null;
+            currentHklList = [];
+        }
     };
 
 
@@ -2292,7 +2297,7 @@ ui.tthMinSlider.addEventListener('input', () => {
     const applyFinalSieve = (solutions) => {
         if (solutions.length <= 1) return solutions;
         showStatus('Applying final sieve to results...', 'info', 2000);
-        const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2 };
+        const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2, 'triclinic': 1 };
         
         // Sort by Volume first
         solutions.sort((a, b) => a.volume - b.volume);
@@ -2367,6 +2372,7 @@ ui.tthMinSlider.addEventListener('input', () => {
         const filteredPeaks = pickedPeaks.filter(p => p.tth >= tthMinVal && p.tth <= tthMaxVal);
 
         if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
+        if (filteredPeaks.length < 4) { showStatus("Fewer than 4 peaks are within the 2θ range. Adjust the Min/Max sliders.", 'error'); return; }
         const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
         if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", "error"); return; }
         if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
@@ -2952,13 +2958,11 @@ const formatWithError = (value, error) => {
     };
 
 
-    /* Niggli Math helpers, there are some duplictaes in this code*/
-    const TAU = Math.PI * 2;
+    /* Niggli Math helpers */
     const DEG = 180 / Math.PI;
     const RAD = Math.PI / 180;
     
     function clamp01(x) { return Math.max(-1, Math.min(1, x)); }
-    function sgn(x) { return x >= 0 ? 1 : -1; }
     
     /** Build orthonormal Cartesian basis from cell params (a,b,c,alpha,beta,gamma) */
     function cellToBasis(a, b, c, alpha, beta, gamma) {
@@ -3411,7 +3415,7 @@ const generatePDFReport = async () => {
             // --- Page Header & Chart ---
             const now = new Date();
             const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            const versionInfo = document.getElementById('app-footer')?.textContent || 'Combs, unknown version';
+            const versionInfo = document.getElementById('app-footer')?.textContent || 'Combs, 20 april 2026';
           	const programURL = window.location.href;
             
     
@@ -4446,12 +4450,26 @@ const generateHKL_for_indexing = (maxTth, params, system) => {
             case 'tetragonal': return (h*h + k*k) / (a*a) + (l*l) / (c*c);
             case 'hexagonal': return (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c);
             case 'orthorhombic': return h*h/(a*a) + k*k/(b*b) + l*l/(c*c);
-            case 'monoclinic':
+            case 'monoclinic': {
                 const sinBeta = Math.sin(beta * Math.PI / 180), cosBeta = Math.cos(beta * Math.PI / 180);
-               
                 if (Math.abs(sinBeta) < 1e-9) return 0;
-               
                 return (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
+            }
+            case 'triclinic': {
+                const alpha = cell.alpha, gamma = cell.gamma;
+                const ca = Math.cos(alpha * Math.PI / 180);
+                const cb = Math.cos(beta  * Math.PI / 180);
+                const cg = Math.cos(gamma * Math.PI / 180);
+                const V_sq = a*a*b*b*c*c * (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg);
+                if (V_sq < 1e-6) return 0;
+                const Gs_11 = (b*b*c*c * (1 - ca*ca)) / V_sq;
+                const Gs_22 = (a*a*c*c * (1 - cb*cb)) / V_sq;
+                const Gs_33 = (a*a*b*b * (1 - cg*cg)) / V_sq;
+                const Gs_23 = 2 * b*c*a*a * (cb*cg - ca) / V_sq;
+                const Gs_13 = 2 * a*c*b*b * (ca*cg - cb) / V_sq;
+                const Gs_12 = 2 * a*b*c*c * (ca*cb - cg) / V_sq;
+                return h*h*Gs_11 + k*k*Gs_22 + l*l*Gs_33 + k*l*Gs_23 + h*l*Gs_13 + h*k*Gs_12;
+            }
         }
         return 0;
     };
@@ -5953,6 +5971,6 @@ const findTransformedSolutions = (initialSolutions) => {
 
 </script>
 
-<div id="app-footer">Combs, 07 nov 2025</div>
+<div id="app-footer">Combs, 20 April 2026</div>
 </body>
 </html>
